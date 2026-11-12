@@ -78,6 +78,40 @@
     return v;
   }
 
+  X.tone = tone;
+  X.resetTone = () => { toneCache = new Map(); ramp = null; };
+
+  /* ---------- карта глубины ----------
+     У обычного слоя карта одна, у спрайтшита — отдельная на каждый кадр. */
+  X.depthOf = function (L, create) {
+    const n = NPR.doc.width * NPR.doc.height;
+    if (L.frames) {
+      if (!L.depths) { if (!create) return null; L.depths = []; }
+      let d = L.depths[L.frame];
+      if ((!d || d.length !== n) && create) d = L.depths[L.frame] = new Uint8Array(n);
+      return d && d.length === n ? d : null;
+    }
+    if ((!L.depth || L.depth.length !== n) && create) L.depth = new Uint8Array(n);
+    return L.depth && L.depth.length === n ? L.depth : null;
+  };
+  /* Команда отмены для правки карты: индексы и значения «до/после». */
+  function depthCmd(L, changes, label) {
+    const n = changes.size, idx = new Uint32Array(n), before = new Uint8Array(n), after = new Uint8Array(n), cur = X.depthOf(L, true);
+    let k = 0;
+    for (const [i, old] of changes) { idx[k] = i; before[k] = old; after[k] = cur[i]; k++; }
+    const layerId = L.id, frame = L.frames ? L.frame : -1;
+    const apply = (doc, vals) => {
+      const T = doc.getLayer(layerId);
+      if (!T) return;
+      if (T.frames && frame >= 0 && frame < T.frames.length && T.frame !== frame) { T.frame = frame; T.data = T.frames[frame]; doc.markAllDirty(); }
+      const d = X.depthOf(T, true);
+      for (let j = 0; j < n; j++) d[idx[j]] = vals[j];
+      depthDirty = true;
+      schedule(); V.redrawOver();
+    };
+    return { label, isDepth: true, bytes: n * 6 + 64, undo: (doc) => apply(doc, before), redo: (doc) => apply(doc, after) };
+  }
+
   /* ---------- текстуры ----------
      Текстура — серая картинка {name, w, h, g: Uint8Array}, повторяется плиткой. */
   function rng(seed) { return () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -125,6 +159,42 @@
       make('Чешуя', (x, y) => { const row = Math.floor(y / 8), cx = ((x + (row & 1) * 8) % 16) - 7.5, cy = (y % 8) - 1; const d = Math.hypot(cx, cy * 1.6); return d < 8 ? 1 - d / 8 : -1; }),
     ];
   }
+  /* Случайная бесшовная текстура 32×32: смесь двух узоров, выбранных по зерну. */
+  X.randomTexture = function (seed) {
+    const N = 32, r = rng(seed), pick = (a) => a[Math.floor(r() * a.length)];
+    function layer() {
+      const kind = Math.floor(r() * 5);
+      if (kind === 0) { // облака
+        const a = noise(N, pick([8, 16]), (r() * 1e9) | 0), b = noise(N, 4, (r() * 1e9) | 0), c = noise(N, 2, (r() * 1e9) | 0), w = 0.3 + r() * 0.5;
+        return (x, y) => a[y * N + x] * w + b[y * N + x] * (1 - w) * 0.7 + c[y * N + x] * (1 - w) * 0.3;
+      }
+      if (kind === 1) { // ячейки и трещины
+        const n = pick([2, 4, 4, 8]), cell = N / n, pts = [], edges = r() < 0.6;
+        for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pts.push([(i + r()) * cell, (j + r()) * cell]);
+        return (x, y) => {
+          let a = 1e9, b = 1e9;
+          for (const [px, py] of pts) { let dx = Math.abs(x - px), dy = Math.abs(y - py); dx = Math.min(dx, N - dx); dy = Math.min(dy, N - dy); const d = Math.hypot(dx, dy); if (d < a) { b = a; a = d; } else if (d < b) b = d; }
+          return edges ? Math.min(1, (b - a) / 3) : 1 - a / cell;
+        };
+      }
+      if (kind === 2) { // волнистые полосы
+        const warp = noise(N, pick([8, 16]), (r() * 1e9) | 0), k = pick([2, 3, 4, 6, 8]), amp = r() * 10, axis = pick(['x', 'y', 'd']);
+        return (x, y) => Math.sin((((axis === 'x' ? x : axis === 'y' ? y : x + y) + warp[y * N + x] * amp) / N) * Math.PI * 2 * k);
+      }
+      if (kind === 3) { // плитка или точки
+        const sz = pick([4, 8, 16]), round = r() < 0.5, shift = r() < 0.5;
+        return (x, y) => { const row = Math.floor(y / sz), cx = ((x + (shift && row & 1 ? sz / 2 : 0)) % sz) - (sz - 1) / 2, cy = (y % sz) - (sz - 1) / 2; const d = round ? Math.hypot(cx, cy) : Math.max(Math.abs(cx), Math.abs(cy)); return 1 - d / (sz / 2); };
+      }
+      const a = noise(N, pick([4, 8]), (r() * 1e9) | 0), b = noise(N, 2, (r() * 1e9) | 0); // прожилки
+      return (x, y) => -Math.abs(a[y * N + x] * 0.7 + b[y * N + x] * 0.3 - 0.5);
+    }
+    const A = layer(), B = layer(), mix = 0.25 + r() * 0.5, f = new Float32Array(N * N), fa = new Float32Array(N * N), fb = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { fa[y * N + x] = A(x, y); fb[y * N + x] = B(x, y); }
+    const na = normalize(fa), nb = normalize(fb);
+    for (let i = 0; i < f.length; i++) f[i] = na[i] * mix + nb[i] * (1 - mix);
+    return { name: 'Случайная', w: N, h: N, g: normalize(f), random: true };
+  };
+
   /* Сделать бесшовной: края заменяются серединой той же картинки, сдвинутой на пол-размера. */
   X.seamless = function (g, w, h) {
     const out = new Uint8Array(w * h), hw = w >> 1, hh = h >> 1;
@@ -154,7 +224,7 @@
     return { w: nw, h: nh, g };
   };
   function saveTextures() {
-    try { localStorage.setItem(KEY, JSON.stringify(X.textures.filter((t) => !t.builtin).map((t) => ({ name: t.name, w: t.w, h: t.h, g: U.toBase64(t.g) })))); }
+    try { localStorage.setItem(KEY, JSON.stringify(X.textures.filter((t) => !t.builtin && !t.random).map((t) => ({ name: t.name, w: t.w, h: t.h, g: U.toBase64(t.g) })))); }
     catch (e) { NPR.toast('Не хватило места в браузере, чтобы сохранить текстуру', true); }
   }
   function loadTextures() {
@@ -212,7 +282,7 @@
     if (!s) return;
     const { tx, mask, x0, y0, x1, y1 } = s, doc = NPR.doc, W = doc.width, H = doc.height, L = tx.layer;
     tx.revert();
-    const d = L.data, depth = L.depth && L.depth.length === W * H ? L.depth : null, steps = P.steps;
+    const d = L.data, depth = X.depthOf(L), steps = P.steps;
     const tex = X.tex, ts = P.texScale;
     const texAt = (x, y) => tex.g[(Math.floor(y / ts) % tex.h) * tex.w + (Math.floor(x / ts) % tex.w)];
 
@@ -306,12 +376,12 @@
   function syncButtons() { $('fxApply').disabled = $('fxCancel').disabled = !X.session; }
 
   /* ---------- инструмент: направление света и кисть глубины ---------- */
-  let last = null, depthCanvas = null, depthDirty = true;
+  let last = null, depthCanvas = null, depthDirty = true, stroke = null;
   function paintDepth(p) {
-    const doc = NPR.doc, L = doc.active, W = doc.width, H = doc.height;
-    if (!L.depth || L.depth.length !== W * H) L.depth = new Uint8Array(W * H);
+    const doc = NPR.doc, L = doc.active, W = doc.width, H = doc.height, map = X.depthOf(L, true);
+    if (!stroke) stroke = new Map(); // что было под кистью — для отмены
     const n = S.brushSize, o = (n / 2) | 0, val = X.brush === 7 ? 0 : X.brush;
-    const dot = (cx, cy) => { for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = cx + i - o, y = cy + j - o; if (x >= 0 && y >= 0 && x < W && y < H) L.depth[y * W + x] = val; } };
+    const dot = (cx, cy) => { for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = cx + i - o, y = cy + j - o; if (x < 0 || y < 0 || x >= W || y >= H) continue; const k = y * W + x; if (map[k] === val) continue; if (!stroke.has(k)) stroke.set(k, map[k]); map[k] = val; } };
     if (last) NPR.plotLine(last.x, last.y, p.x, p.y, dot); else dot(p.x, p.y);
     last = { x: p.x, y: p.y };
     depthDirty = true;
@@ -336,21 +406,27 @@
       if (X.brush) paintDepth(p); else aim(p);
       schedule();
     },
-    up() { last = null; changed(); if (X.brush) NPR.emit('docChanged'); },
-    cancel() { last = null; },
+    up() {
+      last = null;
+      if (stroke && stroke.size) { NPR.history.push(depthCmd(NPR.doc.active, stroke, 'Глубина')); NPR.emit('docChanged'); }
+      stroke = null;
+      changed();
+    },
+    cancel() { last = null; stroke = null; },
   };
   /* Поверх холста: карта глубины и значок источника света. */
   X.drawOverlay = function (ctx) {
     if (S.tool !== 'light') return;
     const doc = NPR.doc, L = doc.active, W = doc.width, H = doc.height, z = V.zoom;
-    if (L.depth && L.depth.length === W * H && $('fxShowDepth').checked) {
+    const map = X.depthOf(L);
+    if (map && $('fxShowDepth').checked) {
       if (!depthCanvas) depthCanvas = document.createElement('canvas');
-      if (depthDirty || depthCanvas.width !== W || depthCanvas.height !== H || depthCanvas._src !== L.depth) {
+      if (depthDirty || depthCanvas.width !== W || depthCanvas.height !== H || depthCanvas._src !== map) {
         depthCanvas.width = W; depthCanvas.height = H;
         const id = new ImageData(W, H), o = new Uint32Array(id.data.buffer);
-        for (let i = 0; i < o.length; i++) { const lv = L.depth[i]; if (lv) { const [r, g, b] = LEVELS[lv].color; o[i] = U.rgba(r, g, b, 150); } }
+        for (let i = 0; i < o.length; i++) { const lv = map[i]; if (lv) { const [r, g, b] = LEVELS[lv].color; o[i] = U.rgba(r, g, b, 150); } }
         depthCanvas.getContext('2d').putImageData(id, 0, 0);
-        depthCanvas._src = L.depth; depthDirty = false;
+        depthCanvas._src = map; depthDirty = false;
       }
       ctx.drawImage(depthCanvas, V.ox, V.oy, W * z, H * z);
     }
@@ -380,6 +456,7 @@
     };
     $('fxTextures').replaceChildren(mk(null), ...X.textures.map(mk));
     $('fxTexDel').disabled = !X.tex || X.tex.builtin;
+    $('fxTexKeep').disabled = !X.tex || !X.tex.random;
   }
   function renderBrushes() {
     const names = ['Свет', ...LEVELS.slice(1).map((l) => l.name), 'Стереть'];
@@ -406,7 +483,29 @@
     $('fxShowDepth').addEventListener('change', () => V.redrawOver());
     $('fxApply').addEventListener('click', X.commit);
     $('fxCancel').addEventListener('click', X.cancel);
-    $('fxDepthClear').addEventListener('click', () => { NPR.doc.active.depth = null; depthDirty = true; changed(); V.redrawOver(); NPR.emit('docChanged'); });
+    $('fxDepthClear').addEventListener('click', () => {
+      const L = NPR.doc.active, map = X.depthOf(L);
+      if (!map) return;
+      const was = new Map();
+      for (let i = 0; i < map.length; i++) if (map[i]) { was.set(i, map[i]); map[i] = 0; }
+      if (was.size) NPR.history.push(depthCmd(L, was, 'Очистка глубины'));
+      depthDirty = true; changed(); V.redrawOver(); NPR.emit('docChanged');
+    });
+    $('fxTexRandom').addEventListener('click', () => {
+      const t = X.randomTexture((Math.random() * 1e9) | 0);
+      const i = X.textures.findIndex((x) => x.random);
+      if (i >= 0) X.textures[i] = t; else X.textures.push(t);
+      X.tex = t;
+      renderTextures(); changed();
+    });
+    $('fxTexKeep').addEventListener('click', () => {
+      const t = X.tex;
+      if (!t || !t.random) return;
+      delete t.random;
+      t.name = 'Случайная ' + (X.textures.filter((x) => !x.builtin).length);
+      saveTextures(); renderTextures();
+      NPR.toast('Текстура сохранена в набор');
+    });
     $('fxTexImport').addEventListener('click', async () => {
       const f = await U.pickFile('image/*');
       if (!f) return;

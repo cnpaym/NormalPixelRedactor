@@ -196,7 +196,9 @@ window.NPR = window.NPR || {};
     primary: U.rgba(0, 0, 0),
     secondary: U.rgba(255, 255, 255),
     brushSize: 1,
-    brushShape: 'square', // square | circle
+    brushShape: 'square', // square | circle | b:<название своей кисти>
+    dither: 0, // узор кисти: 0 — сплошная, 1 — 25%, 2 — 50%, 3 — 75%
+    shade: false, // карандаш не красит, а сдвигает тон: ЛКМ светлее, ПКМ темнее
     pixelPerfect: false,
     filled: false,
     contiguous: true,

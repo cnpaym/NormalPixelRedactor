@@ -36,11 +36,13 @@
   }
 
   /* Возвращает функции рисования для текущей транзакции. */
-  function painter(tx, color, erase) {
+  const DITHER = [0, 2, 3, 1]; // порядок включения пикселей в клетке 2×2
+  function painter(tx, color, erase, shade) {
     const doc = tx.doc, L = tx.layer, d = L.data, W = doc.width, H = doc.height;
     const c = clipRect(doc), mask = tx.mask, alock = L.alphaLock, opaque = color >>> 24 === 255;
     const wrapX = S.tile === 'right' || S.tile === 'all', wrapY = S.tile === 'down' || S.tile === 'all', sx = S.symX, sy = S.symY;
-    const offs = brushOffsets(S.brushSize, S.brushShape);
+    const custom = NPR.brushes.current(), dith = S.dither;
+    const offs = custom ? null : brushOffsets(S.brushSize, S.brushShape);
     const sel = doc.sel, sm = sel && sel.mask;
 
     function index(x, y) {
@@ -50,27 +52,36 @@
       if (sm && sm[(y - sel.y) * sel.w + (x - sel.x)] !== 1) return -1;
       return y * W + x;
     }
-    function plot(x, y) {
+    /* col — свой цвет пикселя (у цветной кисти); без него берётся цвет штриха. */
+    function plot(x, y, col) {
+      if (dith && DITHER[(y & 1) * 2 + (x & 1)] >= dith) return;
       const i = index(x, y);
       if (i < 0) return;
       const old = d[i];
       if (erase) { if (old !== 0) tx.set(i, 0); return; }
+      if (shade) { // сдвиг тона: один раз за штрих, только по закрашенному
+        if (old >>> 24 === 0 || mask[i] === 1) return;
+        const n = NPR.fx.tone(old, shade);
+        if (n !== old) tx.set(i, n);
+        return;
+      }
+      const cc = col === undefined ? color : col;
       if (alock) {
         if (old >>> 24 === 0 || mask[i] === 1) return;
-        const n = U.blend(old, color);
+        const n = U.blend(old, cc);
         tx.set(i, ((n & 0xffffff) | (old & 0xff000000)) >>> 0);
         return;
       }
-      if (opaque) { if (old !== color) tx.set(i, color); return; }
+      if (cc >>> 24 === 255) { if (old !== cc) tx.set(i, cc); return; }
       if (mask[i] === 1) return; // полупрозрачный цвет ложится один раз за штрих
-      const n = U.blend(old, color);
+      const n = U.blend(old, cc);
       if (n !== old) tx.set(i, n);
     }
-    function sym(x, y) {
-      plot(x, y);
-      if (sx) plot(W - 1 - x, y);
-      if (sy) plot(x, H - 1 - y);
-      if (sx && sy) plot(W - 1 - x, H - 1 - y);
+    function sym(x, y, col) {
+      plot(x, y, col);
+      if (sx) plot(W - 1 - x, y, col);
+      if (sy) plot(x, H - 1 - y, col);
+      if (sx && sy) plot(W - 1 - x, H - 1 - y, col);
     }
     function un(x, y) { const i = index(x, y); if (i >= 0) tx.restore(i); }
     function unsym(x, y) {
@@ -79,7 +90,12 @@
       if (sy) un(x, H - 1 - y);
       if (sx && sy) un(W - 1 - x, H - 1 - y);
     }
-    function stamp(x, y) { for (let k = 0; k < offs.length; k += 2) sym(x + offs[k], y + offs[k + 1]); }
+    function stamp(x, y) {
+      if (!custom) { for (let k = 0; k < offs.length; k += 2) sym(x + offs[k], y + offs[k + 1]); return; }
+      // своя кисть: отпечаток той формы, какой она нарисована
+      const bw = custom.w, bh = custom.h, ox = bw >> 1, oy = bh >> 1, bd = custom.data, own = custom.colored && !erase && !shade;
+      for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) { const v = bd[j * bw + i]; if (v >>> 24) sym(x + i - ox, y + j - oy, own ? v : undefined); }
+    }
     return { plot, sym, stamp, unsym };
   }
 
@@ -116,10 +132,10 @@
 
   /* ---------- карандаш и ластик ---------- */
   function strokeTool(erase) {
-    let tx = null, P, last, a, b, color;
+    let tx = null, P, last, a, b, color, shading = false;
     function add(x, y) {
       if (b && b.x === x && b.y === y) return;
-      if (S.pixelPerfect && S.brushSize === 1 && a && b &&
+      if (S.pixelPerfect && S.brushSize === 1 && !NPR.brushes.current() && a && b &&
           (a.x === b.x || a.y === b.y) && (b.x === x || b.y === y) && a.x !== x && a.y !== y) {
         P.unsym(b.x, b.y); // убираем лишний пиксель в углу
         b = a;
@@ -134,7 +150,9 @@
         if (!L) return false;
         tx = new NPR.Tx(NPR.doc, L);
         color = erase ? 0 : ev.button === 2 ? S.secondary : S.primary;
-        P = painter(tx, color, erase);
+        shading = !erase && S.shade;
+        if (shading) NPR.fx.resetTone();
+        P = painter(tx, color, erase, shading ? (ev.button === 2 ? -1 : 1) : 0);
         a = b = null;
         if (ev.shiftKey && T.lastPoint) line(T.lastPoint.x, T.lastPoint.y, p.x, p.y, add);
         else add(p.x, p.y);
@@ -150,7 +168,7 @@
       up() {
         if (!tx) return;
         T.lastPoint = { x: last.x, y: last.y };
-        if (finish(tx, erase ? 'Ластик' : 'Карандаш') && !erase) NPR.emit('colorUsed', color);
+        if (finish(tx, erase ? 'Ластик' : shading ? 'Затенение' : 'Карандаш') && !erase && !shading) NPR.emit('colorUsed', color);
         tx = null;
       },
       cancel() { if (tx) { tx.revert(); tx = null; } },
@@ -588,6 +606,61 @@
     floatCanvas(f);
     V.redrawOver();
   };
+  /* ---------- поворот на любой угол ----------
+     Чтобы пиксель-арт не рассыпался, картинка сначала увеличивается в 8 раз
+     алгоритмом Scale2x (он сохраняет форму линий), затем поворачивается и
+     уменьшается обратно. Это упрощённый вариант RotSprite. */
+  function scale2x(src, w, h) {
+    const out = new Uint32Array(w * h * 4), W2 = w * 2;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const p = src[y * w + x], a = y > 0 ? src[(y - 1) * w + x] : p, b = x < w - 1 ? src[y * w + x + 1] : p, c = x > 0 ? src[y * w + x - 1] : p, d = y < h - 1 ? src[(y + 1) * w + x] : p;
+      const o = y * 2 * W2 + x * 2;
+      out[o] = c === a && c !== d && a !== b ? a : p;
+      out[o + 1] = a === b && a !== c && b !== d ? b : p;
+      out[o + W2] = d === c && d !== b && c !== a ? c : p;
+      out[o + W2 + 1] = b === d && b !== a && d !== c ? d : p;
+    }
+    return out;
+  }
+  E.rotateAny = function (src, w, h, deg) {
+    let big = src, k = 1;
+    if (w * h <= 128 * 128) for (let i = 0; i < 3; i++) { big = scale2x(big, w * k, h * k); k *= 2; }
+    const a = (deg * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
+    const ow = Math.max(1, Math.round(Math.abs(w * cos) + Math.abs(h * sin))), oh = Math.max(1, Math.round(Math.abs(w * sin) + Math.abs(h * cos)));
+    const out = new Uint32Array(ow * oh), bw = w * k, bh = h * k;
+    for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) {
+      const dx = x + 0.5 - ow / 2, dy = y + 0.5 - oh / 2;
+      const sx = Math.floor((dx * cos + dy * sin + w / 2) * k), sy = Math.floor((-dx * sin + dy * cos + h / 2) * k);
+      if (sx >= 0 && sy >= 0 && sx < bw && sy < bh) out[y * ow + x] = big[sy * bw + sx];
+    }
+    return { data: out, w: ow, h: oh };
+  };
+  /* Диалог с живым предпросмотром: крутит выделенное, а без выделения — весь слой. */
+  E.rotateDialog = async function () {
+    const doc = NPR.doc;
+    if (!doc.float && !E.lift()) return;
+    const f = doc.float, src = { data: f.data, w: f.w, h: f.h, x: f.x, y: f.y, mask: f.mask };
+    const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
+    const apply = (deg) => {
+      const r = deg % 360 === 0 ? { data: src.data, w: src.w, h: src.h } : E.rotateAny(src.data, src.w, src.h, deg);
+      f.data = r.data; f.w = r.w; f.h = r.h; f.mask = deg % 360 === 0 ? src.mask : null;
+      f.x = Math.round(cx - r.w / 2); f.y = Math.round(cy - r.h / 2);
+      if (!f.whole) doc.sel = floatSel(f);
+      floatCanvas(f);
+      V.redrawOver();
+    };
+    const v = await NPR.dialog({
+      title: 'Повернуть на угол', okLabel: 'Повернуть',
+      fields: [
+        { id: 'deg', label: 'Угол, градусов по часовой', type: 'number', value: 15, min: -360, max: 360 },
+        { type: 'note', label: 'Результат виден на холсте сразу. После поворота пиксели остаются «в воздухе»: их можно подвинуть, Enter закрепляет.' },
+      ],
+      check: (x) => { if (Number.isFinite(x.deg)) apply(x.deg); return Number.isFinite(x.deg) ? null : { error: 'Введите число' }; },
+    });
+    if (!v) { apply(0); if (f.whole) E.cancelFloat(); }
+    else { f.label = 'Поворот'; NPR.setTool('move'); }
+  };
+
   function rot90(src, w, h, cw) {
     const out = new src.constructor(w * h); // новый размер: h×w
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {

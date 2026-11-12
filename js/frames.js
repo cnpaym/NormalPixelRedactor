@@ -6,7 +6,7 @@
 (function (NPR) {
   const U = NPR.util, V = NPR.view, { el } = U;
   const $ = (id) => document.getElementById(id);
-  const F = (NPR.frames = { onion: true, timer: 0, fps: 8 });
+  const F = (NPR.frames = { onion: true, diff: false, timer: 0, fps: 8 });
   const sprite = () => { const L = NPR.doc && NPR.doc.active; return L && L.frames ? L : null; };
 
   /* ---------- операции ---------- */
@@ -20,6 +20,9 @@
     NPR.ops.snap('Новый кадр', (doc) => {
       const L = doc.active;
       L.frames.splice(L.frame + 1, 0, L.data.slice()); // копия текущего
+      const D = (L.depths = L.depths ? L.depths.slice() : []);
+      while (D.length < L.frames.length - 1) D.push(null);
+      D.splice(L.frame + 1, 0, D[L.frame] ? D[L.frame].slice() : null); // и его карты глубины
       L.frame++; L.data = L.frames[L.frame];
     });
   };
@@ -30,6 +33,7 @@
     NPR.ops.snap('Удаление кадра', (doc) => {
       const S = doc.active;
       S.frames.splice(S.frame, 1);
+      if (S.depths) { S.depths = S.depths.slice(); S.depths.splice(S.frame, 1); }
       S.frame = Math.min(S.frame, S.frames.length - 1); S.data = S.frames[S.frame];
     });
   };
@@ -41,6 +45,7 @@
     NPR.ops.snap('Порядок кадров', (doc) => {
       const S = doc.active, f = S.frames;
       [f[S.frame], f[j]] = [f[j], f[S.frame]];
+      if (S.depths) { const D = (S.depths = S.depths.slice()); while (D.length < f.length) D.push(null); [D[S.frame], D[j]] = [D[j], D[S.frame]]; }
       S.frame = j; S.data = f[j];
     });
   };
@@ -82,6 +87,42 @@
     ctx.globalAlpha = 1;
   };
 
+  /* Подсветка пикселей, которые отличаются от предыдущего кадра. */
+  let diffCanvas = null;
+  F.drawDiff = function (ctx) {
+    const L = sprite(), doc = NPR.doc;
+    if (!F.diff || F.timer || !L || L.frame === 0 || !L.visible) return;
+    const a = L.data, b = L.frames[L.frame - 1], W = doc.width, H = doc.height;
+    if (!diffCanvas) diffCanvas = document.createElement('canvas');
+    diffCanvas.width = W; diffCanvas.height = H;
+    const id = new ImageData(W, H), o = new Uint32Array(id.data.buffer), mark = U.rgba(255, 0, 200, 120);
+    let n = 0;
+    for (let i = 0; i < o.length; i++) if (a[i] !== b[i]) { o[i] = mark; n++; }
+    F.diffCount = n;
+    diffCanvas.getContext('2d').putImageData(id, 0, 0);
+    ctx.drawImage(diffCanvas, V.ox, V.oy, W * V.zoom, H * V.zoom);
+  };
+
+  /* Таблица для Roblox: где на листе лежит каждый кадр. */
+  F.luau = function (layers, W, H, down, gap, k, size, fileName) {
+    const v2 = (x, y) => `Vector2.new(${x * k}, ${y * k})`, out = [];
+    out.push(`-- ${fileName}: ${size.w * k}x${size.h * k}, кадр ${W * k}x${H * k}`);
+    out.push('-- image.ImageRectOffset = frame.ImageRectOffset; image.ImageRectSize = frame.ImageRectSize');
+    out.push('return {', `\tImageSize = ${v2(size.w, size.h)},`, `\tFrameSize = ${v2(W, H)},`);
+    if (NPR.doc.slice && layers.length === 1 && layers[0].frames.length === 1) out.push(`\tSliceCenter = ${NPR.roblox.sliceCenter()},`);
+    out.push('\tSheets = {');
+    layers.forEach((L, si) => {
+      out.push(`\t\t[${JSON.stringify(L.name)}] = {`);
+      L.frames.forEach((_, fi) => {
+        const x = (down ? si : fi) * (W + gap), y = (down ? fi : si) * (H + gap);
+        out.push(`\t\t\t{ ImageRectOffset = ${v2(x, y)}, ImageRectSize = ${v2(W, H)} },`);
+      });
+      out.push('\t\t},');
+    });
+    out.push('\t},', '}', '');
+    return out.join('\n');
+  };
+
   /* ---------- полоса кадров ---------- */
   const TS = 40;
   function thumb(buf, doc) {
@@ -112,6 +153,7 @@
     $('frameInfo').textContent = `Кадр ${L.frame + 1} из ${L.frames.length}`;
     $('framePlay').textContent = F.timer ? '■ Стоп' : '▶ Проиграть';
     $('frameOnion').checked = F.onion;
+    $('frameDiff').checked = F.diff;
     V.redraw();
   }
   F.render = render;
@@ -129,16 +171,19 @@
         { id: 'dir', label: 'Кадры идут', type: 'select', value: 'down', options: [['down', 'сверху вниз'], ['right', 'слева направо']] },
         { id: 'gap', label: 'Отступ между кадрами, px', type: 'number', value: 0, min: 0, max: 64 },
         { id: 'scale', label: 'Масштаб', type: 'select', value: 1, options: [1, 2, 3, 4, 8].map((n) => [n, '×' + n]) },
+        { id: 'lua', label: 'Сохранить и Luau-таблицу для Roblox (.lua)', type: 'checkbox', value: false },
         { type: 'note', label: 'В атласе каждый спрайтшит занимает свой ряд (или столбец), порядок — как у слоёв сверху вниз.' },
       ],
       check: (x) => (Number.isInteger(x.gap) && x.gap >= 0 ? null : { error: 'Отступ — целое число от 0' }),
     });
     if (!v) return;
-    const sheets = (v.what === 'active' && act ? [act] : all.slice().reverse()).map((l) => l.frames);
+    const layers = v.what === 'active' && act ? [act] : all.slice().reverse(), sheets = layers.map((l) => l.frames);
     const img = F.compose(sheets, doc.width, doc.height, v.dir === 'down', v.gap);
     const k = +v.scale, src = k > 1 ? U.scaleNearest(img.data, img.w, img.h, img.w * k, img.h * k) : img.data;
     if (Math.max(img.w, img.h) * k > 16384) return NPR.toast('Лист получается больше 16384 px. Уменьшите масштаб', true);
-    U.download(await U.makePNG(img.w * k, img.h * k, src), NPR.io.safeName(doc.name) + (v.what === 'all' ? '_atlas' : '_sheet') + '.png');
+    const base = NPR.io.safeName(doc.name) + (v.what === 'all' ? '_atlas' : '_sheet');
+    U.download(await U.makePNG(img.w * k, img.h * k, src), base + '.png');
+    if (v.lua) setTimeout(() => U.download(new Blob([F.luau(layers, doc.width, doc.height, v.dir === 'down', v.gap, k, img, base + '.png')], { type: 'text/plain' }), base + '.lua'), 400);
     NPR.toast(`Сохранён лист ${img.w * k}×${img.h * k}`);
   };
   /* sheets: массив спрайтшитов, каждый — массив кадров W×H. */
@@ -163,6 +208,7 @@
     bind('framePlay', F.play);
     bind('frameExport', F.exportDialog);
     $('frameOnion').addEventListener('change', (e) => { F.onion = e.target.checked; V.redraw(); });
+    $('frameDiff').addEventListener('change', (e) => { F.diff = e.target.checked; V.redraw(); });
     $('frameFps').addEventListener('input', (e) => { F.fps = U.clamp(Math.round(+e.target.value) || 8, 1, 60); if (F.timer) { F.stop(); F.play(); } });
     NPR.on('layers', render);
     NPR.on('history', render);

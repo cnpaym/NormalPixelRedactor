@@ -17,6 +17,7 @@
       this.frames = null; // кадры слоя-спрайтшита; data всегда указывает на текущий
       this.frame = 0;
       this.depth = null; // карта глубины для освещения (Uint8Array, см. fx.js)
+      this.depths = null; // у спрайтшита — своя карта на каждый кадр
       this.data = data || new Uint32Array(w * h);
     }
   }
@@ -115,7 +116,7 @@
       return {
         width: this.width, height: this.height, activeId: this.activeId,
         sel: this.sel && { ...this.sel },
-        layers: this.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, alphaLock: l.alphaLock, data: l.data, frames: l.frames && l.frames.slice(), frame: l.frame, depth: l.depth })),
+        layers: this.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, alphaLock: l.alphaLock, data: l.data, frames: l.frames && l.frames.slice(), frame: l.frame, depth: l.depth, depths: l.depths && l.depths.slice() })),
       };
     }
     restore(s) {
@@ -128,6 +129,7 @@
         L.frames = p.frames ? p.frames.slice() : null;
         L.frame = p.frame || 0;
         L.depth = p.depth || null;
+        L.depths = p.depths ? p.depths.slice() : null;
         L.data = p.data;
         return L;
       });

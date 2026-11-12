@@ -60,7 +60,7 @@ input[type="checkbox"] { accent-color: var(--accent); }
 
 /* ---------- рабочая область ---------- */
 #main { flex: 1; display: flex; min-height: 0; }
-#toolbar { display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; scrollbar-width: none; }
+#toolbar { display: grid; grid-template-columns: 32px 32px; align-content: start; gap: 2px; padding: 4px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; scrollbar-width: none; }
 #toolbar button { width: 32px; height: 32px; min-height: 0; padding: 0; display: grid; place-items: center; flex: none; }
 #toolbar svg { width: 18px; height: 18px; }
 
@@ -294,3 +294,23 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .bj .acts label { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); }
 .bj .acts input { width: 100px; }
 .bj .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+
+/* ---------- Roblox, кисти, клавиши, гайд ---------- */
+#rbxPanel { width: 292px; flex: none; overflow-y: auto; padding: 8px 10px; background: var(--panel); border-right: 1px solid var(--line); }
+#rbxPanel h3 { margin: 10px 0 5px; font-size: 12px; font-weight: 600; color: var(--dim); }
+#rbxPanel h3:first-child { margin-top: 0; }
+#rbxPanel h3 span { color: var(--text); font-weight: 400; }
+#rbxPanel .note { margin: 0 0 6px; color: var(--dim); font-size: 12px; }
+#rbxPanel .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+#rbxPanel label { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); flex: 1; }
+#rbxPanel input[type="number"] { width: 60px; }
+#rbxPanel input[type="range"] { width: 70px; min-width: 0; flex: 1; accent-color: #3ddc84; }
+#rbxPreview { display: block; width: 100%; image-rendering: pixelated; border: 1px solid var(--line); background: repeating-conic-gradient(#4b4b4b 0 25%, #5c5c5c 0 50%) 0 0 / 16px 16px; }
+#rbxOut { display: block; width: 100%; margin-bottom: 6px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+#options #optBrushMenu { width: 28px; padding: 0; margin-left: -8px; }
+.keys { list-style: none; margin: 0 0 10px; padding: 0; max-height: 46vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); }
+.keys li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 8px; border-bottom: 1px solid var(--line); }
+.keys button { min-width: 72px; padding: 2px 8px; }
+.dlg h3.guide { margin: 10px 0 6px; font-size: 13px; color: var(--accent); }
+.dlg:has(.guide) { width: min(520px, calc(100vw - 24px)); }
+.dlg .note { -webkit-user-select: text; user-select: text; }

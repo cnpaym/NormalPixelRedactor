@@ -98,7 +98,7 @@
     else if (ev.altKey && PAINT.includes(name)) name = 'eyedropper';
     const tool = T[name];
     NPR.frames.stop();
-    if (name === 'gradient' || name === 'refs' || name === 'light') { /* сами решают, что закреплять */ }
+    if (name === 'gradient' || name === 'refs' || name === 'light' || name === 'slice') { /* сами решают, что закреплять */ }
     else if (!SELECT.includes(name)) E.commitFloat();
     V.hover = p;
     if (tool.down(p, ev) !== false) {
@@ -155,8 +155,54 @@
   }
 
   /* ---------- клавиатура ---------- */
-  const TOOL_KEYS = { KeyB: 'pencil', KeyE: 'eraser', KeyG: 'fill', KeyI: 'eyedropper', KeyL: 'line', KeyU: 'rect', KeyO: 'ellipse', KeyM: 'select', KeyQ: 'lasso', KeyW: 'wand', KeyV: 'move', KeyH: 'hand', KeyD: 'gradient', KeyT: 'light', KeyR: 'refs' };
-  I.TOOL_KEYS = TOOL_KEYS;
+  /* Настраиваемые клавиши (одна клавиша без Ctrl). Действие → код клавиши. */
+  const TOOL_NAMES = { pencil: 'Карандаш', eraser: 'Ластик', fill: 'Заливка', eyedropper: 'Пипетка', line: 'Линия', rect: 'Прямоугольник', ellipse: 'Эллипс',
+    select: 'Выделение', selectEllipse: 'Выделение эллипсом', lasso: 'Лассо', wand: 'Волшебная палочка', gradient: 'Градиент', light: 'Свет и текстура',
+    move: 'Перемещение', hand: 'Рука', refs: 'Референсы', slice: 'Roblox: 9-slice' };
+  const ACTIONS = {};
+  for (const t in TOOL_NAMES) ACTIONS['tool:' + t] = { label: TOOL_NAMES[t], run: () => NPR.setTool(t) };
+  Object.assign(ACTIONS, {
+    swap: { label: 'Поменять цвета местами', run: () => NPR.swapColors() },
+    brushDown: { label: 'Кисть меньше', run: () => NPR.setBrushSize(S.brushSize - 1) },
+    brushUp: { label: 'Кисть больше', run: () => NPR.setBrushSize(S.brushSize + 1) },
+    zoomIn: { label: 'Приблизить', run: () => V.zoomStep(1) },
+    zoomOut: { label: 'Отдалить', run: () => V.zoomStep(-1) },
+    fit: { label: 'Вписать в окно', run: () => V.fit() },
+    zoom100: { label: 'Масштаб 100%', run: () => V.setZoom(1) },
+    framePrev: { label: 'Предыдущий кадр', run: () => NPR.frames.step(-1) },
+    frameNext: { label: 'Следующий кадр', run: () => NPR.frames.step(1) },
+    frameNew: { label: 'Новый кадр', run: () => NPR.frames.add() },
+    side: { label: 'Правая панель', run: () => NPR.toggle('side') },
+    shade: { label: 'Режим затенения', run: () => NPR.toggle('shade') },
+  });
+  const DEFAULT_KEYS = { 'tool:pencil': 'KeyB', 'tool:eraser': 'KeyE', 'tool:fill': 'KeyG', 'tool:eyedropper': 'KeyI', 'tool:line': 'KeyL', 'tool:rect': 'KeyU', 'tool:ellipse': 'KeyO',
+    'tool:select': 'KeyM', 'tool:lasso': 'KeyQ', 'tool:wand': 'KeyW', 'tool:gradient': 'KeyD', 'tool:light': 'KeyT', 'tool:move': 'KeyV', 'tool:hand': 'KeyH', 'tool:refs': 'KeyR',
+    swap: 'KeyX', brushDown: 'BracketLeft', brushUp: 'BracketRight', zoomIn: 'Equal', zoomOut: 'Minus', fit: 'Digit0', zoom100: 'Digit1',
+    framePrev: 'Comma', frameNext: 'Period', side: 'Tab' };
+  const RESERVED = ['Escape', 'Enter', 'Space', 'Delete', 'Backspace', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'MetaLeft', 'MetaRight'];
+  const KEYS_STORE = 'npr.keys';
+  let keys = { ...DEFAULT_KEYS }, byCode = {};
+  function rebuild() { byCode = {}; for (const id in keys) if (keys[id] && ACTIONS[id]) byCode[keys[id]] = id; }
+  try { const o = JSON.parse(localStorage.getItem(KEYS_STORE)); if (o && typeof o === 'object') keys = { ...DEFAULT_KEYS, ...o }; } catch (e) { /* стандартные */ }
+  rebuild();
+  const NAMES = { BracketLeft: '[', BracketRight: ']', Equal: '=', Minus: '−', Comma: ',', Period: '.', Semicolon: ';', Quote: "'", Slash: '/', Backslash: '\\', Backquote: '`', Tab: 'Tab' };
+  I.keyLabel = (code) => (!code ? '' : NAMES[code] || code.replace(/^Key|^Digit/, '').replace(/^Numpad/, 'Num '));
+  I.keyOf = (id) => I.keyLabel(keys[id]);
+  I.actions = ACTIONS;
+  I.keys = () => keys;
+  I.setKey = function (id, code) {
+    for (const other in keys) if (keys[other] === code) keys[other] = ''; // клавиша уходит от прежнего действия
+    keys[id] = code;
+    rebuild();
+    try { localStorage.setItem(KEYS_STORE, JSON.stringify(keys)); } catch (e) { /* не страшно */ }
+    NPR.emit('keys');
+  };
+  I.resetKeys = function () {
+    keys = { ...DEFAULT_KEYS }; rebuild();
+    try { localStorage.removeItem(KEYS_STORE); } catch (e) { /* не страшно */ }
+    NPR.emit('keys');
+  };
+  I.RESERVED = RESERVED;
 
   function nudge(dx, dy) {
     const doc = NPR.doc;
@@ -192,15 +238,10 @@
       else if (c === 'KeyE') NPR.actions.exportPNG();
       else used = false; // Ctrl+V обрабатывается событием paste
     } else if (e.altKey && c !== 'AltLeft' && c !== 'AltRight') used = false;
-    else if (TOOL_KEYS[c] && !e.shiftKey) NPR.setTool(TOOL_KEYS[c]);
     else if (c === 'KeyG' && e.shiftKey) NPR.toggle('hideGrids');
-    else if (c === 'KeyX') NPR.swapColors();
-    else if (c === 'BracketLeft') NPR.setBrushSize(S.brushSize - 1);
-    else if (c === 'BracketRight') NPR.setBrushSize(S.brushSize + 1);
-    else if (c === 'Equal' || c === 'NumpadAdd') V.zoomStep(1);
-    else if (c === 'Minus' || c === 'NumpadSubtract') V.zoomStep(-1);
-    else if (c === 'Digit0') V.fit();
-    else if (c === 'Digit1') V.setZoom(1);
+    else if (byCode[c] && !e.shiftKey) ACTIONS[byCode[c]].run();
+    else if (c === 'NumpadAdd') V.zoomStep(1);
+    else if (c === 'NumpadSubtract') V.zoomStep(-1);
     else if (c === 'Delete' || c === 'Backspace') { if (S.tool === 'refs' && NPR.refs.selected) NPR.refs.remove(NPR.refs.selected); else E.del(); }
     else if (c === 'Escape') {
       const had = I.cancelStroke();
@@ -208,9 +249,6 @@
       else if (!had) { if (NPR.doc.float) E.cancelFloat(); else E.deselect(); }
     }
     else if (c === 'Enter') E.commitFloat();
-    else if (c === 'Tab') NPR.toggle('side');
-    else if (c === 'Comma') NPR.frames.step(-1);
-    else if (c === 'Period') NPR.frames.step(1);
     else if (c === 'Space') { I.space = true; setCursor(); }
     else if (c === 'AltLeft' || c === 'AltRight') { /* пипетка при зажатом Alt; не даём браузеру открыть меню */ }
     else if (c === 'ArrowLeft') used = nudge(-1, 0);

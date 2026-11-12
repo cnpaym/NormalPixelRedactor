@@ -42,6 +42,11 @@
     <label data-tools="pencil eraser line rect ellipse">Форма
       <select id="optShape"><option value="square">квадрат</option><option value="circle">круг</option></select>
     </label>
+    <button type="button" id="optBrushMenu" data-tools="pencil eraser line rect ellipse" title="Свои кисти" aria-label="Свои кисти">⋯</button>
+    <label data-tools="pencil line rect ellipse fill" title="Кисть красит не все пиксели, а узором">Узор
+      <select id="optDither"><option value="0">сплошной</option><option value="1">25%</option><option value="2">50%</option><option value="3">75%</option></select>
+    </label>
+    <label class="chk" data-tools="pencil" title="Карандаш не красит, а сдвигает тон пикселей: левая кнопка светлее, правая темнее. Откуда брать тона — настройка «цвет тона» в инструменте «Свет и текстура»"><input id="optShade" type="checkbox"> Затенение</label>
     <label class="chk" data-tools="pencil eraser" title="Убирает лишние пиксели в углах линий. Работает с кистью 1 px"><input id="optPP" type="checkbox"> Pixel-perfect</label>
     <label class="chk" data-tools="rect ellipse" title="Прямоугольник и эллипс рисуются закрашенными"><input id="optFilled" type="checkbox"> С заливкой</label>
     <span class="group" data-tools="fill wand gradient" title="Как определяется область: для заливки, палочки и градиента без выделения">Область:
@@ -74,6 +79,7 @@
     <span class="hint" data-tools="move">Двигает выделенное или весь слой. Стрелки — на 1 px.</span>
     <span class="hint" data-tools="eyedropper">Берёт цвет с рисунка и с референсов. Правая кнопка — во вторичный цвет.</span>
     <span class="hint" data-tools="hand">Двигает холст. То же самое — пробел или средняя кнопка мыши.</span>
+    <span class="hint" data-tools="slice">Тяните зелёные направляющие. Слева — предпросмотр растяжения и готовый SliceCenter.</span>
     <span class="hint" data-tools="refs">Тяните референс, чтобы подвинуть; за жёлтый уголок — изменить размер. Delete — удалить.</span>
   </div>
 
@@ -125,6 +131,8 @@
         <button type="button" id="fxTexImport" title="Сделать текстуру из картинки">Из файла…</button>
         <button type="button" id="fxTexCanvas" title="Сделать текстуру из холста или выделения">Из холста</button>
         <button type="button" id="fxTexDel">Удалить</button>
+        <button type="button" id="fxTexRandom" title="Придумать новую бесшовную текстуру">Случайная</button>
+        <button type="button" id="fxTexKeep" title="Сохранить случайную текстуру в набор">Оставить</button>
       </div>
       <h3>Глубина: что делает протяжка по холсту</h3>
       <div id="fxBrushes"></div>
@@ -137,6 +145,31 @@
         <button type="button" id="fxCancel">Отменить</button>
         <button type="button" id="fxApply" class="primary">Применить</button>
       </div>
+    </aside>
+
+    <aside id="rbxPanel" aria-label="Roblox: 9-slice" hidden>
+      <h3>9-slice для Roblox</h3>
+      <p class="note">Тяните зелёные линии на холсте. Углы не растягиваются, края тянутся в одну сторону, середина — в обе.</p>
+      <div class="row">
+        <label>слева <input id="rbxL" type="number" min="0" inputmode="numeric"></label>
+        <label>сверху <input id="rbxT" type="number" min="0" inputmode="numeric"></label>
+      </div>
+      <div class="row">
+        <label>справа <input id="rbxR" type="number" min="0" inputmode="numeric"></label>
+        <label>снизу <input id="rbxB" type="number" min="0" inputmode="numeric"></label>
+      </div>
+      <h3>Как растянется <span id="rbxSize"></span></h3>
+      <canvas id="rbxPreview" width="270" height="170"></canvas>
+      <div class="row">
+        <label>ширина <input id="rbxW" type="range" min="100" max="500" value="250"></label>
+        <label>высота <input id="rbxH" type="range" min="100" max="500" value="150"></label>
+      </div>
+      <h3>Для ImageLabel (ScaleType = Slice)</h3>
+      <input id="rbxOut" type="text" readonly aria-label="Значение SliceCenter">
+      <button type="button" id="rbxCopy">Копировать</button>
+      <h3>Спрайтшиты</h3>
+      <p class="note">Экспорт листа с отступами и Luau-таблицей (ImageRectOffset, ImageRectSize) для каждого кадра.</p>
+      <button type="button" id="rbxLua">Экспорт листа и Luau-таблицы…</button>
     </aside>
 
     <div id="stage">
@@ -250,6 +283,7 @@
     <button type="button" id="frameRight" title="Сдвинуть кадр позже">→</button>
     <button type="button" id="frameDel" title="Удалить текущий кадр">Удалить</button>
     <label class="chk" title="Показывать предыдущий кадр полупрозрачным"><input id="frameOnion" type="checkbox" checked> прошлый кадр</label>
+    <label class="chk" title="Подсветить пиксели, которые отличаются от предыдущего кадра"><input id="frameDiff" type="checkbox"> отличия</label>
     <button type="button" id="framePlay">▶ Проиграть</button>
     <label><input id="frameFps" type="number" min="1" max="60" value="8" inputmode="numeric"> к/с</label>
     <button type="button" id="frameExport" title="Сохранить лист с кадрами или атлас">Экспорт листа…</button>
@@ -273,6 +307,7 @@
 <script src="js/ui.js"></script>
 <script src="js/view.js"></script>
 <script src="js/tools.js"></script>
+<script src="js/brushes.js"></script>
 <script src="js/ops.js"></script>
 <script src="js/io.js"></script>
 <script src="js/palette.js"></script>
@@ -283,6 +318,7 @@
 <script src="js/refs.js"></script>
 <script src="js/frames.js"></script>
 <script src="js/fx.js"></script>
+<script src="js/roblox.js"></script>
 <script src="js/blackjack.js"></script>
 <script src="js/input.js"></script>
 <script src="js/app.js"></script>

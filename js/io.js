@@ -27,10 +27,13 @@
         L.frames = x.frames; L.frame = U.clamp(x.frame | 0, 0, x.frames.length - 1); L.data = L.frames[L.frame];
       }
       if (x.depth && x.depth.length === w * h) L.depth = x.depth;
+      if (L.frames && Array.isArray(x.depths)) L.depths = x.depths.map((d) => (d && d.length === w * h ? d : null));
       return L;
     });
     if (!doc.layers.length) throw new Error('В проекте нет слоёв');
     doc.activeId = (doc.layers[meta.activeLayer] || doc.layers[doc.layers.length - 1]).id;
+    const sl = meta.slice;
+    if (sl && [sl.l, sl.t, sl.r, sl.b].every((n) => Number.isInteger(n) && n >= 0)) doc.slice = { l: sl.l, t: sl.t, r: sl.r, b: sl.b };
     doc.markAllDirty();
     return doc;
   }
@@ -43,11 +46,12 @@
       const rec = { ...layerProps(L), encoding: U.hasCompression ? 'deflate' : 'raw', data: await pack(L.data) };
       if (L.frames) { rec.frames = []; for (const f of L.frames) rec.frames.push(await pack(f)); rec.frame = L.frame; }
       if (L.depth) rec.depth = await pack(L.depth);
+      if (L.depths) { rec.depths = []; for (const d of L.depths) rec.depths.push(d ? await pack(d) : null); }
       layers.push(rec);
     }
     return JSON.stringify({
       format: FORMAT, version: VERSION, name: doc.name, width: doc.width, height: doc.height,
-      activeLayer: doc.indexOf(doc.activeId), layers,
+      activeLayer: doc.indexOf(doc.activeId), layers, slice: doc.slice || null,
       palette: NPR.palette ? NPR.palette.current() : null,
       refs: await NPR.refs.toJSON(doc),
     });
@@ -66,6 +70,7 @@
       const x = { frames: null, frame: L.frame, depth: null };
       if (Array.isArray(L.frames)) { x.frames = []; for (const f of L.frames) x.frames.push(await px(f)); }
       if (typeof L.depth === 'string') x.depth = await bytes(L.depth);
+      if (Array.isArray(L.depths)) { x.depths = []; for (const d of L.depths) x.depths.push(typeof d === 'string' ? await bytes(d) : null); }
       extras.push(x);
     }
     const doc = build(o, datas, extras);
@@ -215,8 +220,8 @@
     if (doc.float || NPR.edit.sessions().length || NPR.input.busy) return IO.scheduleAutosave();
     const rec = {
       version: VERSION, id: doc.pid, name: doc.name, width: doc.width, height: doc.height,
-      activeLayer: doc.indexOf(doc.activeId),
-      layers: doc.layers.map((L) => ({ ...layerProps(L), data: L.data, frames: L.frames, frame: L.frame, depth: L.depth })), // IndexedDB сам копирует буферы
+      activeLayer: doc.indexOf(doc.activeId), slice: doc.slice || null,
+      layers: doc.layers.map((L) => ({ ...layerProps(L), data: L.data, frames: L.frames, frame: L.frame, depth: L.depth, depths: L.depths })), // IndexedDB сам копирует буферы
       refs: NPR.refs.toRecords(doc),
     };
     const entry = { id: doc.pid, name: doc.name, width: doc.width, height: doc.height, updated: Date.now(), thumb: thumbnail(doc) };

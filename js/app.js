@@ -36,7 +36,8 @@
   }
   NPR.undo = function () {
     if (NPR.input.busy) return;
-    const d = NPR.doc;
+    const d = NPR.doc, top = NPR.history.undoStack[NPR.history.undoStack.length - 1];
+    if (NPR.fx.session && top && top.isDepth) { afterHistory(NPR.history.undo(d), 'Отменено', d.width, d.height); return; } // мазок глубины отменяется, предпросмотр остаётся
     if (E.cancelSessions()) return;
     if (d.float) { E.cancelFloat(); return; }
     const w = d.width, h = d.height;
@@ -44,8 +45,8 @@
   };
   NPR.redo = function () {
     if (NPR.input.busy) return;
-    const d = NPR.doc;
-    E.commitFloat();
+    const d = NPR.doc, top = NPR.history.redoStack[NPR.history.redoStack.length - 1];
+    if (!(NPR.fx.session && top && top.isDepth)) E.commitFloat();
     const w = d.width, h = d.height;
     afterHistory(NPR.history.redo(d), 'Повторено', w, h);
   };
@@ -67,13 +68,16 @@
     ['light', 'Свет и текстура', 'T', 'M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z M8 1.5v1.5 M8 13v1.5 M1.5 8H3 M13 8h1.5 M3.4 3.4l1.1 1.1 M11.5 11.5l1.1 1.1 M3.4 12.6l1.1-1.1 M11.5 4.5l1.1-1.1'],
     ['move', 'Перемещение', 'V', 'M8 2v12 M2 8h12 M6 4l2-2 2 2 M6 12l2 2 2-2 M4 6L2 8l2 2 M12 6l2 2-2 2'],
     ['hand', 'Рука (пан)', 'H', 'M5 9V4.5a1 1 0 0 1 2 0V8 M7 7.5V3.5a1 1 0 0 1 2 0v4 M9 7.5v-3a1 1 0 0 1 2 0V9 M11 8.5v-2a1 1 0 0 1 2 0V10c0 3-2 4.5-4.5 4.5-2 0-3.2-1-4-2.5L3 9.5a1 1 0 0 1 2-.5'],
+    ['slice', 'Roblox: 9-slice', '', 'M2.5 2.5h11v11h-11z M6 1v14 M10 1v14 M1 6h14 M1 10h14'],
     ['refs', 'Референсы: двигать и менять размер', 'R', 'M2.5 3.5h11v9h-11z M2.5 10.5L6 7l3 3 2-2 2.5 2.5 M10.5 6h.01'],
   ];
   NPR.setTool = function (name) {
     if (NPR.input.busy) return;
     E.commitSessions(name === 'gradient' ? NPR.gradient : name === 'light' ? NPR.fx : null);
-    if (!['move', 'select', 'selectEllipse', 'lasso', 'wand', 'gradient', 'light', 'refs'].includes(name)) E.commitFloat();
+    if (!['move', 'select', 'selectEllipse', 'lasso', 'wand', 'gradient', 'light', 'refs', 'slice'].includes(name)) E.commitFloat();
     NPR.fx.show(name === 'light');
+    NPR.roblox.show(name === 'slice');
+    document.body.classList.toggle('fx-on', name === 'light' || name === 'slice');
     S.tool = name;
     for (const o of document.querySelectorAll('#options [data-tools]')) o.hidden = !o.dataset.tools.split(' ').includes(name);
     for (const b of $('toolbar').children) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
@@ -95,6 +99,7 @@
     symX: () => { S.symX = !S.symX; },
     symY: () => { S.symY = !S.symY; },
     penOnly: () => { S.penOnly = !S.penOnly; },
+    shade: () => { S.shade = !S.shade; },
     side: () => { document.body.classList.toggle('no-side'); },
   };
   NPR.toggle = function (name) {
@@ -109,6 +114,8 @@
     $('optFilled').checked = S.filled;
     $('optContig').checked = S.contiguous;
     $('optAll').checked = S.sampleAll;
+    $('optShade').checked = S.shade;
+    $('optDither').value = S.dither;
     $('optTol').value = S.tolerance;
     $('optSymX').setAttribute('aria-pressed', String(S.symX));
     $('optSymY').setAttribute('aria-pressed', String(S.symY));
@@ -122,7 +129,7 @@
   /* ---------- настройки ---------- */
   function saveSettings() {
     const keep = ['brushSize', 'brushShape', 'pixelPerfect', 'filled', 'contiguous', 'tolerance', 'sampleAll', 'penOnly', 'grid', 'customGrid', 'gridW', 'gridH',
-      'hideGrids', 'tile', 'showGrads', 'gradType', 'gradAngle', 'gradSteps', 'gradDither', 'gradBlend'];
+      'hideGrids', 'tile', 'dither', 'shade', 'showGrads', 'gradType', 'gradAngle', 'gradSteps', 'gradDither', 'gradBlend'];
     const o = { undoMB: Math.round(NPR.history.limit / 1048576) };
     for (const k of keep) o[k] = S[k];
     try { localStorage.setItem(SETTINGS, JSON.stringify(o)); } catch (e) { /* хранилище недоступно */ }
@@ -287,6 +294,71 @@
     NPR.history.trim();
     saveSettings(); NPR.status.update();
   };
+  A.outline = async function () {
+    const v = await NPR.dialog({
+      title: 'Обводка', okLabel: 'Обвести',
+      fields: [
+        { id: 'color', label: 'Цвет (hex)', value: U.toHex(S.primary, true) },
+        { id: 'where', label: 'Где', type: 'select', value: 'out', options: [['out', 'снаружи объекта'], ['in', 'по краю внутри объекта']] },
+        { id: 'diag', label: 'Закрывать и углы (по диагонали)', type: 'checkbox', value: false },
+        { type: 'note', label: 'Обводится всё закрашенное на активном слое. Если есть выделение — только внутри него.' },
+      ],
+      check: (x) => (U.parseHex(x.color) === null ? { error: 'Цвет записывается как #rrggbb или #rrggbbaa' } : null),
+    });
+    if (!v) return;
+    const n = O.outline(U.parseHex(v.color), v.where === 'in', v.diag);
+    NPR.toast(n ? `Обведено пикселей: ${n}` : 'Обводить нечего');
+  };
+  /* Настройка клавиш: щёлкнуть по действию и нажать новую клавишу. */
+  A.hotkeys = function () {
+    const I = NPR.input, box = el('ul', { class: 'keys' });
+    let waiting = null;
+    const paint = () => box.replaceChildren(...Object.keys(I.actions).map((id) => {
+      const b = el('button', { type: 'button', 'aria-pressed': String(waiting === id) }, waiting === id ? 'нажмите клавишу…' : I.keyOf(id) || '—');
+      b.addEventListener('click', () => { waiting = waiting === id ? null : id; paint(); });
+      return el('li', null, el('span', null, I.actions[id].label), b);
+    }));
+    const onKey = (e) => {
+      if (!waiting) return;
+      e.preventDefault(); e.stopPropagation();
+      if (e.code === 'Escape') { waiting = null; return paint(); }
+      if (I.RESERVED.includes(e.code)) return NPR.toast('Эта клавиша занята самим редактором');
+      I.setKey(waiting, e.code);
+      waiting = null; paint();
+    };
+    const reset = el('button', { type: 'button' }, 'Вернуть стандартные');
+    reset.addEventListener('click', () => { I.resetKeys(); waiting = null; paint(); });
+    paint();
+    document.addEventListener('keydown', onKey, true);
+    NPR.dialog({
+      title: 'Настройка клавиш', okLabel: 'Готово', noCancel: true,
+      fields: [{ type: 'node', node: box }, { type: 'node', node: reset },
+        { type: 'note', label: 'Клавиши привязаны к месту на клавиатуре и работают в любой раскладке. Сочетания с Ctrl (отмена, копирование, сохранение) не меняются.' }],
+    }).then(() => document.removeEventListener('keydown', onKey, true));
+  };
+  A.guide = function () {
+    const sec = (title, lines) => [{ type: 'node', node: el('h3', { class: 'guide' }, title) }, ...lines.map((t) => ({ type: 'note', label: t }))];
+    NPR.dialog({
+      title: 'Свои кисти и текстуры', okLabel: 'Понятно', noCancel: true,
+      fields: [
+        ...sec('Кисть', [
+          '1. Нарисуйте форму кисти на холсте: точку, крест, листик, что угодно. Размер — до 64×64.',
+          '2. Обведите её любым выделением (M, лассо Q или палочка W).',
+          '3. «Правка → Сделать кисть из выделения». Дайте название.',
+          '4. Галочка «своими цветами»: без неё кисть берёт только форму и красит текущим цветом; с ней переносит свои цвета, как штамп.',
+          '5. Кисть появится в списке «Форма» у карандаша, ластика, линии и фигур. Удалить её можно кнопкой ⋯ рядом со списком.',
+        ]),
+        ...sec('Текстура', [
+          '1. Откройте «Свет и текстура» (T).',
+          '2. «Из файла…» — любая картинка, или «Из холста» — то, что нарисовано (или выделенный кусок).',
+          '3. Картинка станет чёрно-белой: серое не меняет цвет, светлое осветляет, тёмное затемняет.',
+          '4. Галочка «Сделать бесшовной» убирает стыки при повторении плиткой.',
+          '5. «Случайная» придумывает новую бесшовную текстуру при каждом нажатии; понравилась — «Оставить».',
+          'Совет: рисуйте текстуру оттенками серого на холсте 16×16 или 32×32 в режиме «Вид → Копии вокруг (3×3)» — так сразу видно, как она стыкуется.',
+        ]),
+      ],
+    });
+  };
   A.keys = function () {
     NPR.dialog({
       title: 'Горячие клавиши', okLabel: 'Понятно',
@@ -337,6 +409,7 @@
       { label: 'Удалить', key: 'Delete', action: E.del },
       '-',
       { label: 'Выделить всё', key: 'Ctrl+A', action: E.selectAll },
+      { label: 'Сделать кисть из выделения…', action: NPR.brushes.fromSelection },
       { label: 'Снять выделение', key: 'Ctrl+D', disabled: !NPR.doc.sel, action: E.deselect },
       { label: 'Инвертировать выделение', key: 'Ctrl+Shift+I', action: E.invert },
     ],
@@ -345,11 +418,13 @@
       { label: 'Масштабировать изображение…', action: A.scale },
       { label: 'Обрезать по выделению', disabled: !NPR.doc.sel, action: O.cropToSelection },
       { label: 'Заменить цвет…', action: A.replaceColor },
+      { label: 'Обводка…', action: A.outline },
       '-',
       { label: 'Отразить по горизонтали', action: () => E.flip(true) },
       { label: 'Отразить по вертикали', action: () => E.flip(false) },
       { label: 'Повернуть на 90° по часовой', action: () => E.rotate(true) },
       { label: 'Повернуть на 90° против часовой', action: () => E.rotate(false) },
+      { label: 'Повернуть на угол…', action: E.rotateDialog },
     ],
     view: () => [
       { label: 'Вписать в окно', key: '0', action: V.fit },
@@ -371,7 +446,9 @@
       '-',
       { label: 'Рисовать только пером (пальцы двигают холст)', checked: S.penOnly, action: () => NPR.toggle('penOnly') },
       { label: 'Правая панель', key: 'Tab', checked: !document.body.classList.contains('no-side'), action: () => NPR.toggle('side') },
-      { label: 'Горячие клавиши', action: A.keys },
+      { label: 'Настроить клавиши…', action: A.hotkeys },
+      { label: 'Все сочетания клавиш', action: A.keys },
+      { label: 'Как сделать свои кисти и текстуры', action: A.guide },
       { label: 'Блэкджек', action: NPR.blackjack },
     ],
   };
@@ -403,7 +480,7 @@
 
     const tb = $('toolbar');
     for (const [name, label, key, icon] of TOOLS) {
-      const b = el('button', { type: 'button', 'data-tool': name, title: key ? `${label} (${key})` : label, 'aria-label': label, 'aria-pressed': 'false', html: NPR.svgIcon(icon) });
+      const b = el('button', { type: 'button', 'data-tool': name, 'data-label': label, title: label, 'aria-label': label, 'aria-pressed': 'false', html: NPR.svgIcon(icon) });
       b.addEventListener('click', () => NPR.setTool(name));
       tb.append(b);
     }
@@ -411,7 +488,13 @@
       b.addEventListener('click', () => NPR.popup(b, MENUS[b.dataset.menu]()));
 
     $('brushSize').addEventListener('input', (e) => { if (e.target.value !== '') NPR.setBrushSize(+e.target.value); saveSettings(); });
-    $('optShape').addEventListener('change', (e) => { S.brushShape = e.target.value; saveSettings(); });
+    $('optShape').addEventListener('change', (e) => { S.brushShape = e.target.value; NPR.brushes.render(); saveSettings(); });
+    $('optBrushMenu').addEventListener('click', (e) => NPR.brushes.menu(e.currentTarget));
+    $('optShade').addEventListener('change', (e) => { S.shade = e.target.checked; saveSettings(); });
+    $('optDither').addEventListener('change', (e) => { S.dither = +e.target.value; saveSettings(); });
+    const keyTitles = () => { for (const b of tb.children) { const k = NPR.input.keyOf('tool:' + b.dataset.tool); b.title = k ? `${b.dataset.label} (${k})` : b.dataset.label; } };
+    NPR.on('keys', keyTitles);
+    keyTitles();
     $('optPP').addEventListener('change', (e) => { S.pixelPerfect = e.target.checked; saveSettings(); });
     $('optFilled').addEventListener('change', (e) => { S.filled = e.target.checked; saveSettings(); });
     $('optContig').addEventListener('change', (e) => { S.contiguous = e.target.checked; saveSettings(); });
@@ -444,6 +527,8 @@
     NPR.color.init();
     NPR.gradient.init();
     NPR.refs.init();
+    NPR.brushes.init();
+    NPR.roblox.init();
     NPR.frames.init();
     NPR.fx.init();
     NPR.layersUI.init();

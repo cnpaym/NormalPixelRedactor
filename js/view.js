@@ -125,6 +125,7 @@
       ctx.globalAlpha = 1;
     }
     NPR.frames.drawOnion(ctx);
+    NPR.frames.drawDiff(ctx);
     NPR.refs.draw(ctx, 'over');
 
     // сетки рисуются только по основному холсту
@@ -215,19 +216,21 @@
     }
 
     NPR.fx.drawOverlay(ctx);
+    NPR.roblox.drawOverlay(ctx);
     NPR.gradient.drawOverlay(ctx);
     NPR.refs.drawOverlay(ctx);
 
     // контур кисти под курсором
     const hv = V.hover, tool = NPR.tools && NPR.tools[S.tool];
     if (hv && tool && !NPR.input.panning && S.tool !== 'refs') {
-      const n = tool.usesBrush ? S.brushSize : 1, o = (n / 2) | 0;
-      const x = Math.round(V.ox + (hv.x - o) * z) + 0.5, y = Math.round(V.oy + (hv.y - o) * z) + 0.5;
-      const s = Math.max(1, Math.round(n * z) - 1);
+      const cb = tool.usesBrush && S.tool !== 'light' ? NPR.brushes.current() : null;
+      const n = tool.usesBrush ? S.brushSize : 1, bw = cb ? cb.w : n, bh = cb ? cb.h : n;
+      const x = Math.round(V.ox + (hv.x - (bw >> 1)) * z) + 0.5, y = Math.round(V.oy + (hv.y - (bh >> 1)) * z) + 0.5;
+      const s = Math.max(1, Math.round(bw * z) - 1), s2 = Math.max(1, Math.round(bh * z) - 1);
       ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-      ctx.strokeRect(x - 1, y - 1, s + 2, s + 2);
+      ctx.strokeRect(x - 1, y - 1, s + 2, s2 + 2);
       ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-      ctx.strokeRect(x, y, s, s);
+      ctx.strokeRect(x, y, s, s2);
     }
   }
 

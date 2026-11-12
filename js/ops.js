@@ -34,6 +34,7 @@
     C.opacity = L.opacity; C.alphaLock = L.alphaLock;
     if (L.frames) { C.frames = L.frames.map((f) => f.slice()); C.frame = L.frame; C.data = C.frames[C.frame]; }
     if (L.depth) C.depth = L.depth.slice();
+    if (L.depths) C.depths = L.depths.map((d) => d && d.slice());
     doc.addLayerRaw(C, doc.indexOf(L.id) + 1);
   });
   O.deleteLayer = () => snap('Удаление слоя', (doc) => {
@@ -72,6 +73,26 @@
     NPR.emit('docChanged');
     return cmds.reduce((n, c) => n + c.idx.length, 0);
   };
+  /* Обводка объекта на активном слое. inside — по крайним пикселям самого объекта,
+     иначе по прозрачным пикселям вокруг. diag — считать соседями и диагональные. */
+  O.outline = function (color, inside, diag) {
+    NPR.edit.commitFloat();
+    const doc = NPR.doc, L = NPR.edit.editableLayer();
+    if (!L) return 0;
+    const Sel = NPR.selection, W = doc.width, H = doc.height, src = L.data.slice(), tx = new NPR.Tx(doc, L);
+    const filled = (x, y) => x >= 0 && y >= 0 && x < W && y < H && src[y * W + x] >>> 24 !== 0;
+    const near = diag ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (doc.sel && !Sel.has(doc.sel, x, y)) continue;
+      const me = filled(x, y);
+      if (me !== !!inside) continue;
+      // снаружи ищем закрашенного соседа, внутри — пустого (край холста пустым не считается)
+      if (near.some(([dx, dy]) => (inside ? x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < H && !filled(x + dx, y + dy) : filled(x + dx, y + dy)))) tx.set(y * W + x, color);
+    }
+    const cmd = tx.commit('Обводка');
+    if (cmd) { NPR.history.push(cmd); NPR.emit('docChanged'); }
+    return cmd ? cmd.idx.length : 0;
+  };
   O.mergeDown = () => snap('Объединение слоёв', (doc) => {
     const i = doc.indexOf(doc.activeId);
     if (i < 1) { NPR.toast('Ниже нет слоя для объединения'); return false; }
@@ -94,7 +115,7 @@
     doc.setSize(nw, nh);
     doc.layers.forEach((L, i) => {
       if (L.frames) { L.frames = datas[i]; L.data = L.frames[L.frame]; } else L.data = datas[i];
-      L.depth = null; // карта глубины привязана к старому размеру
+      L.depth = null; L.depths = null; // карты глубины привязаны к старому размеру
     });
     doc.sel = null;
   }
