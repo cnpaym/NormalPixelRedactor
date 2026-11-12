@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#282828">
+<link rel="icon" href="icons/icon-192.png">
+<title>NormalPixelRedactor</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="menubar">
+    <span class="brand" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <nav aria-label="Главное меню">
+      <button type="button" data-menu="file">Файл</button>
+      <button type="button" data-menu="edit">Правка</button>
+      <button type="button" data-menu="image">Изображение</button>
+      <button type="button" data-menu="view">Вид</button>
+    </nav>
+    <button type="button" id="docTitle" title="Переименовать проект"></button>
+    <button type="button" id="btnGrid" class="ico" aria-pressed="true" title="Показать или скрыть сетку (Shift+G)" aria-label="Сетка">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 2.5h11v11h-11z M6.2 2.5v11 M9.8 2.5v11 M2.5 6.2h11 M2.5 9.8h11"/></svg>
+    </button>
+    <button type="button" id="btnGrads" class="ico" aria-pressed="true" title="Показать или скрыть панель градиентов" aria-label="Панель градиентов">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 3.5h11v9h-11z M5 12.5l8.5-8.5 M8.5 12.5l5-5 M2.5 9l5.5-5.5"/></svg>
+    </button>
+    <button type="button" id="btnUndo" class="ico" title="Отменить (Ctrl+Z)" aria-label="Отменить">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3L2.5 6.5 6 10 M3 6.5h6.5a4 4 0 0 1 0 8H7"/></svg>
+    </button>
+    <button type="button" id="btnRedo" class="ico" title="Повторить (Ctrl+Y)" aria-label="Повторить">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3l3.5 3.5L10 10 M13 6.5H6.5a4 4 0 0 0 0 8H9"/></svg>
+    </button>
+    <button type="button" id="btnSide" class="ico" title="Правая панель (Tab)" aria-label="Показать или скрыть правую панель">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3h11v10h-11z M10 3v10"/></svg>
+    </button>
+  </header>
+
+  <!-- Настройки показываются только для того инструмента, к которому относятся (data-tools) -->
+  <div id="options">
+    <label data-tools="pencil eraser line rect ellipse light">Кисть <input id="brushSize" type="number" min="1" max="64" value="1" inputmode="numeric"></label>
+    <label data-tools="pencil eraser line rect ellipse">Форма
+      <select id="optShape"><option value="square">квадрат</option><option value="circle">круг</option></select>
+    </label>
+    <label class="chk" data-tools="pencil eraser" title="Убирает лишние пиксели в углах линий. Работает с кистью 1 px"><input id="optPP" type="checkbox"> Pixel-perfect</label>
+    <label class="chk" data-tools="rect ellipse" title="Прямоугольник и эллипс рисуются закрашенными"><input id="optFilled" type="checkbox"> С заливкой</label>
+    <span class="group" data-tools="fill wand gradient" title="Как определяется область: для заливки, палочки и градиента без выделения">Область:
+      <label class="chk" title="Только соседние пиксели. Если выключить — все пиксели этого цвета"><input id="optContig" type="checkbox"> соседние</label>
+      <label class="chk" title="Искать область по всем видимым слоям, а не только по активному"><input id="optAll" type="checkbox"> все слои</label>
+      <label title="Насколько цвет может отличаться, 0–255. 0 — только точно такой же">допуск <input id="optTol" type="number" min="0" max="255" value="0" inputmode="numeric"></label>
+    </span>
+    <span class="group" data-tools="gradient">
+      <label>Форма
+        <select id="gradType">
+          <option value="linear">линейный</option>
+          <option value="radial">круговой</option>
+          <option value="angular">угловой</option>
+          <option value="diamond">ромб</option>
+        </select>
+      </label>
+      <label title="Направление в градусах, 0–359. Можно и протянуть мышью по холсту">Угол <input id="gradAngle" type="number" min="0" max="359" value="0" inputmode="numeric">°</label>
+      <label title="Число цветовых ступеней. 0 — плавный переход">Ступени <input id="gradSteps" type="number" min="0" max="64" value="0" inputmode="numeric"></label>
+      <label class="chk" title="Смешивать соседние ступени узором из пикселей. Нужны ступени от 2"><input id="gradDither" type="checkbox"> дизеринг</label>
+      <label class="chk" title="Накладывать градиент поверх пикселей. Если выключить — пиксели заменяются, включая прозрачные участки градиента"><input id="gradBlend" type="checkbox"> поверх</label>
+      <button type="button" id="gradApply" class="primary" title="Применить градиент (Enter)">Применить</button>
+      <button type="button" id="gradCancel" title="Убрать предпросмотр (Esc)">Отменить</button>
+    </span>
+    <span class="group" data-tools="pencil eraser line rect ellipse">Симметрия
+      <button type="button" id="optSymX" aria-pressed="false" title="Зеркало слева направо">↔</button>
+      <button type="button" id="optSymY" aria-pressed="false" title="Зеркало сверху вниз">↕</button>
+    </span>
+    <span class="hint" data-tools="light">Тяните по холсту, чтобы задать, откуда свет. Кисти глубины рисуют рельеф. Enter — применить, Esc — отменить.</span>
+    <span class="hint" data-tools="select selectEllipse lasso wand">Shift — добавить к выделению, Alt — вычесть. Тянуть внутри выделения — двигать пиксели.</span>
+    <span class="hint" data-tools="move">Двигает выделенное или весь слой. Стрелки — на 1 px.</span>
+    <span class="hint" data-tools="eyedropper">Берёт цвет с рисунка и с референсов. Правая кнопка — во вторичный цвет.</span>
+    <span class="hint" data-tools="hand">Двигает холст. То же самое — пробел или средняя кнопка мыши.</span>
+    <span class="hint" data-tools="refs">Тяните референс, чтобы подвинуть; за жёлтый уголок — изменить размер. Delete — удалить.</span>
+  </div>
+
+  <!-- Текущий градиент и быстрые образцы цветов из него -->
+  <div id="gradBar">
+    <button type="button" id="gradStrip" title="Текущий градиент. Нажмите, чтобы изменить точки" aria-label="Текущий градиент"></button>
+    <button type="button" id="gradEdit" aria-pressed="false" title="Открыть редактор точек градиента">Изменить</button>
+    <label>Образцов
+      <select id="gradSamples"><option>8</option><option>16</option><option>32</option></select>
+    </label>
+    <div id="gradSwatches" class="swatches" aria-label="Цвета из градиента"></div>
+  </div>
+
+  <div id="main">
+    <div id="toolbar" role="toolbar" aria-label="Инструменты" aria-orientation="vertical"></div>
+
+    <aside id="gradPanel" aria-label="Градиенты">
+      <div class="head">
+        <h2>Градиенты</h2>
+        <button type="button" id="gradSave" title="Сохранить текущий градиент в «Мои»" aria-label="Сохранить градиент">+</button>
+      </div>
+      <div id="gradList"></div>
+    </aside>
+
+    <aside id="fxPanel" aria-label="Свет и текстура" hidden>
+      <div class="row">
+        <label class="chk"><input id="fxLight" type="checkbox"> Свет</label>
+        <label title="С какой стороны светит: 0° — справа, 90° — снизу, 225° — сверху слева">с угла <input id="fxAngle" type="number" min="0" max="359" inputmode="numeric">°</label>
+        <label>сила <input id="fxStrength" type="range" min="0" max="100"></label>
+      </div>
+      <div class="row">
+        <label class="chk" title="Края фигуры считаются скруглёнными: получается объём"><input id="fxBevel" type="checkbox"> Объём от края</label>
+        <label>ширина <input id="fxBevelW" type="number" min="1" max="32" inputmode="numeric"> px</label>
+      </div>
+      <div class="row">
+        <label title="На сколько тонов цвет может уйти в свет и в тень">Тонов <input id="fxSteps" type="number" min="1" max="4" inputmode="numeric"></label>
+        <label>цвет тона
+          <select id="fxMode"><option value="hsv">по яркости и оттенку</option><option value="ramp">из текущей палитры</option></select>
+        </label>
+      </div>
+      <h3>Текстура</h3>
+      <div id="fxTextures"></div>
+      <div class="row">
+        <label title="Во сколько раз увеличить узор">масштаб ×<input id="fxTexScale" type="number" min="1" max="16" inputmode="numeric"></label>
+        <label>сила <input id="fxTexStrength" type="range" min="0" max="100"></label>
+        <label class="chk" title="Текстура добавляется к высоте, и свет рисует на ней блики и тени"><input id="fxTexRelief" type="checkbox"> рельеф</label>
+      </div>
+      <div class="row">
+        <button type="button" id="fxTexImport" title="Сделать текстуру из картинки">Из файла…</button>
+        <button type="button" id="fxTexCanvas" title="Сделать текстуру из холста или выделения">Из холста</button>
+        <button type="button" id="fxTexDel">Удалить</button>
+      </div>
+      <h3>Глубина: что делает протяжка по холсту</h3>
+      <div id="fxBrushes"></div>
+      <div class="row">
+        <label title="На сколько пикселей светящиеся пиксели подсвечивают соседей">свечение <input id="fxGlow" type="number" min="0" max="6" inputmode="numeric"> px</label>
+        <label class="chk"><input id="fxShowDepth" type="checkbox" checked> показывать карту</label>
+        <button type="button" id="fxDepthClear">Очистить карту</button>
+      </div>
+      <div class="row end">
+        <button type="button" id="fxCancel">Отменить</button>
+        <button type="button" id="fxApply" class="primary">Применить</button>
+      </div>
+    </aside>
+
+    <div id="stage">
+      <canvas id="cMain"></canvas>
+      <canvas id="cOver"></canvas>
+
+      <div id="gradEditor" hidden>
+        <div id="gradEditBar" title="Щёлкните, чтобы добавить точку"></div>
+        <div id="gradStops"></div>
+        <div class="row">
+          <label>Позиция <input id="gradPos" type="number" min="0" max="100" step="1" inputmode="decimal">%</label>
+          <label>Цвет <input id="gradHex" type="text" spellcheck="false" autocomplete="off" maxlength="9"></label>
+          <button type="button" id="gradDelStop">Удалить точку</button>
+        </div>
+        <div class="row">
+          <button type="button" id="gradReverse" title="Поменять начало и конец местами">Развернуть</button>
+          <button type="button" id="gradEven" title="Расставить точки на равном расстоянии">Равномерно</button>
+          <span id="gradCount"></span>
+          <button type="button" id="gradClose">Закрыть</button>
+        </div>
+        <p class="note">Цвет и прозрачность выбранной точки меняются выбором цвета справа.</p>
+      </div>
+    </div>
+
+    <aside id="side" aria-label="Цвет, палитра и слои">
+      <section data-key="color">
+        <div class="head">
+          <h2>Цвет</h2>
+          <div id="pickerModes" role="group" aria-label="Вид выбора цвета">
+            <button type="button" data-mode="square" aria-pressed="true" title="Квадрат: насыщенность и яркость" aria-label="Квадрат"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3h10v10H3z"/></svg></button>
+            <button type="button" data-mode="triangle" aria-pressed="false" title="Треугольник с кольцом оттенков" aria-label="Треугольник"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M8 3l5.5 10h-11z"/></svg></button>
+            <button type="button" data-mode="sliders" aria-pressed="false" title="Ползунки HSV и RGB" aria-label="Ползунки"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 4h12 M2 8h12 M2 12h12"/></svg></button>
+          </div>
+        </div>
+        <div class="body">
+          <canvas id="svBox" width="220" height="120" aria-label="Насыщенность и яркость"></canvas>
+          <canvas id="triBox" aria-label="Кольцо оттенков и треугольник насыщенности и яркости" hidden></canvas>
+          <div id="sliders" hidden></div>
+          <input id="hue" type="range" min="0" max="360" step="1" aria-label="Оттенок">
+          <input id="alpha" type="range" min="0" max="255" step="1" aria-label="Непрозрачность цвета">
+          <div class="colrow">
+            <div class="pair">
+              <button type="button" id="colSecondary" class="chip" title="Вторичный цвет (правая кнопка). Нажмите, чтобы поменять местами" aria-label="Вторичный цвет"></button>
+              <div id="colPrimary" class="chip" title="Основной цвет"></div>
+            </div>
+            <button type="button" id="colSwap" title="Поменять цвета местами (X)" aria-label="Поменять цвета местами">⇄</button>
+            <input id="hex" type="text" spellcheck="false" autocomplete="off" maxlength="9" aria-label="Цвет в формате hex">
+          </div>
+          <div id="recent" class="swatches" aria-label="Недавние цвета"></div>
+        </div>
+      </section>
+
+      <section data-key="palette">
+        <div class="head"><h2>Палитра</h2></div>
+        <div class="body">
+          <div class="palrow">
+            <select id="palSelect" aria-label="Выбор палитры"></select>
+            <button type="button" id="palAdd" title="Добавить текущий цвет в палитру" aria-label="Добавить цвет">+</button>
+            <button type="button" id="palDel" title="Убрать выбранный цвет из палитры" aria-label="Убрать цвет">−</button>
+            <button type="button" id="palMenu" title="Действия с палитрой" aria-label="Действия с палитрой">⋯</button>
+          </div>
+          <div id="palSwatches" class="swatches"></div>
+        </div>
+      </section>
+
+      <section data-key="layers">
+        <div class="head"><h2>Слои</h2></div>
+        <div class="body">
+          <label class="oprow">Непрозрачность
+            <input id="layerOpacity" type="range" min="0" max="100" value="100">
+            <output id="layerOpacityVal">100%</output>
+          </label>
+          <ul id="layerList"></ul>
+          <div class="layerbtns">
+            <button type="button" id="layerAdd" title="Новый слой">+</button>
+            <button type="button" id="layerDup" title="Дублировать слой">Копия</button>
+            <button type="button" id="layerUp" title="Поднять слой">↑</button>
+            <button type="button" id="layerDown" title="Опустить слой">↓</button>
+            <button type="button" id="layerMerge" title="Объединить с нижним слоем">Слить</button>
+            <button type="button" id="layerDel" title="Удалить слой">Удалить</button>
+            <button type="button" id="layerSprite" class="wide" title="Сделать активный слой спрайтшитом: у него появятся кадры">Сделать спрайтшитом</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-key="refs">
+        <div class="head">
+          <h2>Референсы</h2>
+          <button type="button" id="refAdd" title="Добавить картинки-референсы" aria-label="Добавить референс">+</button>
+        </div>
+        <div class="body">
+          <ul id="refList"></ul>
+          <p id="refHint" class="note" hidden>Инструмент «Референсы» (R) двигает картинки и меняет их размер. Пипетка берёт с них цвета.</p>
+        </div>
+      </section>
+
+      <section data-key="preview">
+        <div class="head"><h2>Превью</h2></div>
+        <div class="body">
+          <div class="previewbox"><canvas id="cPreview" width="1" height="1"></canvas></div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <div id="frameBar" hidden>
+    <span id="frameInfo"></span>
+    <div id="frameList"></div>
+    <button type="button" id="frameAdd" class="primary" title="Новый кадр — копия текущего">+ Новый кадр</button>
+    <button type="button" id="frameLeft" title="Сдвинуть кадр раньше">←</button>
+    <button type="button" id="frameRight" title="Сдвинуть кадр позже">→</button>
+    <button type="button" id="frameDel" title="Удалить текущий кадр">Удалить</button>
+    <label class="chk" title="Показывать предыдущий кадр полупрозрачным"><input id="frameOnion" type="checkbox" checked> прошлый кадр</label>
+    <button type="button" id="framePlay">▶ Проиграть</button>
+    <label><input id="frameFps" type="number" min="1" max="60" value="8" inputmode="numeric"> к/с</label>
+    <button type="button" id="frameExport" title="Сохранить лист с кадрами или атлас">Экспорт листа…</button>
+  </div>
+
+  <footer id="status">
+    <span id="stPos">—</span>
+    <span id="stSel"></span>
+    <span id="stMsg"></span>
+    <span class="spacer"></span>
+    <span id="stHist"></span>
+    <span id="stZoom"></span>
+  </footer>
+</div>
+<div id="toasts" aria-live="polite"></div>
+
+<script src="js/util.js"></script>
+<script src="js/document.js"></script>
+<script src="js/history.js"></script>
+<script src="js/selection.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/view.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/ops.js"></script>
+<script src="js/io.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/color.js"></script>
+<script src="js/layers-ui.js"></script>
+<script src="js/gradient-presets.js"></script>
+<script src="js/gradient.js"></script>
+<script src="js/refs.js"></script>
+<script src="js/frames.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/blackjack.js"></script>
+<script src="js/input.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
