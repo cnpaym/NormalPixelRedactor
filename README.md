@@ -93,5 +93,3 @@
 JSON с полями `format`, `version`, `width`, `height`, `layers`, `palette`, `refs`.
 Пиксели слоя: RGBA → deflate → base64, без потерь. Поле `version` нужно,
 чтобы будущие версии редактора открывали старые файлы.
-
-Планы — в [ROADMAP.md](ROADMAP.md).
