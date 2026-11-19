@@ -12,7 +12,13 @@
      (выпуклое, ровное, три уровня углубления);
    - текстура: серый 128 ничего не меняет, светлее — осветляет, темнее — затемняет;
      с галочкой «рельеф» текстура ещё и добавляется к высоте, и на ней появляются блики;
-   - «свечение»: такие пиксели не затеняются, становятся светлее и подсвечивают соседей. */
+   - «свечение»: такие пиксели не затеняются, становятся светлее и подсвечивают соседей.
+
+   Свет 2.0: несколько источников, у каждого свой угол, высота, сила и цвет.
+   Цветной свет не только осветляет, но и окрашивает освещённую сторону.
+   Наклон плоскости: участок считается ровной гранью, повёрнутой в заданную сторону, —
+   он освещается целиком одинаково, без градиента от краёв.
+   Глухая тень и «без света»: маска, куда свет не попадает. */
 (function (NPR) {
   const S = NPR.state, U = NPR.util, V = NPR.view, Sel = NPR.selection, { el } = U;
   const $ = (id) => document.getElementById(id);
@@ -21,7 +27,12 @@
 
   /* Настройки инструмента. */
   const P = (X.params = {
-    light: true, angle: 225, strength: 60, // angle — с какой стороны свет (225° = сверху слева)
+    light: true,
+    // angle — с какой стороны свет (225° = сверху слева), elev — высота над плоскостью рисунка
+    lights: [{ on: true, angle: 225, elev: 40, strength: 60, color: '#ffffff' }],
+    outsideShadow: false, // при выделении: всё вне его — в глухой тени
+    facetDir: 180, facetTilt: 45, // наклон плоскости для кисти «Наклон»
+    anim: { frames: 8, mode: 'line', pingpong: true, byDist: true, p1: null, p2: null }, // анимация света
     bevel: true, bevelW: 3,
     steps: 2, mode: 'hsv', // hsv | ramp (по палитре)
     texScale: 1, texStrength: 50, texRelief: false,
@@ -32,12 +43,21 @@
     null,
     { name: 'Выпуклое', h: 2, amb: 0, color: [255, 220, 80] },
     { name: 'Ровное', h: 0, amb: 0, color: [150, 150, 150] },
-    { name: 'Углубление: небольшое', h: -1, amb: 0, color: [90, 170, 255] },
-    { name: 'Углубление: среднее', h: -2, amb: 1, color: [50, 100, 230] },
-    { name: 'Углубление: глубокое', h: -3, amb: 2, color: [40, 40, 160] },
+    { name: 'Углубление: небольшое', h: -1, amb: 1, color: [90, 170, 255] },
+    { name: 'Углубление: среднее', h: -2, amb: 2, color: [50, 100, 230] },
+    { name: 'Углубление: глубокое', h: -3, amb: 3, color: [40, 40, 160] },
     { name: 'Свечение', h: 0, amb: 0, color: [255, 60, 220] },
+    { name: 'Глухая тень', h: 0, amb: 0, color: [20, 20, 20] },
+    { name: 'Без света', h: 0, amb: 0, color: [255, 255, 255] },
   ];
-  const GLOW = 6;
+  const GLOW = 6, DEEP = 7, NOLIGHT = 8, FACET = 16, MAXLIGHTS = 4;
+  X.LEVELS = LEVELS;
+  /* Наклон хранится в той же карте: 16 + направление (32 шага по 11.25°) × 7 + наклон (1–7 шагов по 11.25°). */
+  X.facetCode = (dir, tilt) => FACET + (Math.round((((dir % 360) + 360) % 360) / 11.25) % 32) * 7 + U.clamp(Math.round(tilt / 11.25), 1, 7) - 1;
+  function facetNormal(v) {
+    const k = v - FACET, D = (Math.floor(k / 7) * 11.25 * Math.PI) / 180, T = (((k % 7) + 1) * 11.25 * Math.PI) / 180;
+    return [Math.sin(T) * Math.cos(D), Math.sin(T) * Math.sin(D), Math.cos(T)];
+  }
 
   /* ---------- сдвиг тона ---------- */
   const luma = (c) => (c & 255) * 0.299 + ((c >>> 8) & 255) * 0.587 + ((c >>> 16) & 255) * 0.114;
@@ -70,15 +90,18 @@
     }
     return ((cur & 0xffffff) | (c & 0xff000000)) >>> 0;
   }
-  function tone(c, n) {
+  function tone(c, n, mode) {
     if (n === 0) return c;
-    const key = c * 16 + (n + 8);
+    const ramped = (mode || P.mode) === 'ramp', key = (c * 32 + (n + 16)) * 2 + (ramped ? 1 : 0);
     let v = toneCache.get(key);
-    if (v === undefined) { v = P.mode === 'ramp' ? rampTone(c, n) : hsvTone(c, n); toneCache.set(key, v); }
+    if (v === undefined) { v = ramped ? rampTone(c, n) : hsvTone(c, n); toneCache.set(key, v); }
     return v;
   }
 
   X.tone = tone;
+  /* Снимок текущих настроек для стиля текста. */
+  X.recordStep = () => ({ t: 'fx', params: JSON.parse(JSON.stringify(P)), tex: X.tex ? X.tex.name : null });
+  X.findTexture = (name) => (name ? X.textures.find((t) => t.name === name) || null : null);
   X.resetTone = () => { toneCache = new Map(); ramp = null; };
 
   /* ---------- карта глубины ----------
@@ -262,32 +285,36 @@
     const doc = NPR.doc, L = NPR.edit.editableLayer();
     if (!L) return false;
     const W = doc.width, H = doc.height, d = L.data, sel = doc.sel, mask = new Uint8Array(W * H);
+    const outside = P.outsideShadow && sel, inSel = outside ? new Uint8Array(W * H) : null;
     let x0 = W, y0 = H, x1 = -1, y1 = -1;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (d[i] >>> 24 === 0 || (sel && !Sel.has(sel, x, y))) continue;
+      if (d[i] >>> 24 === 0) continue;
+      const inside = !sel || Sel.has(sel, x, y);
+      if (!inside && !outside) continue;
       mask[i] = 1;
+      if (inSel && inside) inSel[i] = 1;
       if (x < x0) x0 = x;
       if (x > x1) x1 = x;
       if (y < y0) y0 = y;
       if (y > y1) y1 = y;
     }
     if (x1 < 0) { NPR.toast(sel ? 'В выделении нет закрашенных пикселей' : 'На слое нет закрашенных пикселей: свет ложится только на рисунок'); return false; }
-    X.session = { tx: new NPR.Tx(doc, L), mask, x0, y0, x1, y1 };
+    X.session = { tx: new NPR.Tx(doc, L), mask, inSel, x0, y0, x1, y1 };
     syncButtons();
     return true;
   }
-  function render() {
-    const s = X.session;
-    if (!s) return;
-    const { tx, mask, x0, y0, x1, y1 } = s, doc = NPR.doc, W = doc.width, H = doc.height, L = tx.layer;
-    tx.revert();
-    const d = L.data, depth = X.depthOf(L), steps = P.steps;
-    const tex = X.tex, ts = P.texScale;
-    const texAt = (x, y) => tex.g[(Math.floor(y / ts) % tex.h) * tex.w + (Math.floor(x / ts) % tex.w)];
+  /* Расчёт света и текстуры. Чистая функция: читает d, пишет через set.
+     o: { d, W, H, mask, x0, y0, x1, y1, depth, inSel, P, tex, set } */
+  X.shade = function (o) {
+    const { d, W, H, mask, x0, y0, x1, y1, depth, inSel, tex, set } = o, Q = o.P;
+    const steps = Q.steps, mode = Q.mode, ts = Q.texScale || 1;
+    const mod = (a, n) => ((a % n) + n) % n;
+    const texAt = (x, y) => tex.g[mod(Math.floor(y / ts), tex.h) * tex.w + mod(Math.floor(x / ts), tex.w)];
+    const relief = tex && Q.texRelief;
 
     // расстояние до края фигуры (в два прохода), не больше ширины объёма
-    const R = P.bevel ? P.bevelW : 0, dist = new Uint8Array(W * H);
+    const R = Q.bevel ? Q.bevelW : 0, dist = new Uint8Array(W * H);
     if (R) {
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const i = y * W + x;
@@ -304,37 +331,67 @@
       const i = y * W + x;
       if (!mask[i]) continue;
       const lv = depth ? depth[i] : 0;
-      let h = lv ? R + LEVELS[lv].h : dist[i];
-      if (tex && P.texRelief) h += ((texAt(x, y) - 128) / 128) * 0.8;
+      let h = lv >= FACET || lv === DEEP || lv === NOLIGHT ? R : lv ? R + LEVELS[lv].h : dist[i];
+      if (relief) h += ((texAt(x, y) - 128) / 128) * 0.8;
       hgt[i] = h;
     }
-    const a = (P.angle * Math.PI) / 180, lx = Math.cos(a), ly = Math.sin(a), lz = 0.8, ll = Math.hypot(lx, ly, lz), flat = lz / ll;
-    const kLight = (P.strength / 50) * steps * 1.8, kTex = (P.texStrength / 50) * steps;
+    // источники света: единичный вектор к свету, его «нулевой» уровень (плоскость, смотрящая на зрителя)
+    const lights = Q.light ? (Q.lights || []).filter((l) => l.on && l.strength > 0).map((l) => {
+      const a = (l.angle * Math.PI) / 180, e = (U.clamp(l.elev, 5, 85) * Math.PI) / 180, c = U.parseHex(l.color) || 0xffffffff;
+      const r = c & 255, g = (c >>> 8) & 255, b = (c >>> 16) & 255;
+      return { lx: Math.cos(a) * Math.cos(e), ly: Math.sin(a) * Math.cos(e), lz: Math.sin(e), k: (l.strength / 50) * steps * 1.8, w: l.strength / 50, r, g, b, white: Math.min(r, g, b) > 235 };
+    }) : [];
+    const kTex = (Q.texStrength / 50) * steps, lo = -(steps + 3);
     const glow = [];
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * W + x;
       if (!mask[i]) continue;
       const lv = depth ? depth[i] : 0, c = d[i];
       if (lv === GLOW) { glow.push(i); continue; }
-      let idx = 0;
-      if (P.light) {
-        const h = hgt[i];
-        // за краем фигуры: у нарисованной глубины высота та же (обрыва нет), у объёма — ноль
-        const at = (j, inside) => (inside && mask[j] ? hgt[j] : lv ? h : 0);
-        const gx = (at(i + 1, x < W - 1) - at(i - 1, x > 0)) / 2, gy = (at(i + W, y < H - 1) - at(i - W, y > 0)) / 2;
-        const lit = (-gx * lx - gy * ly + lz) / Math.hypot(gx, gy, 1) / ll - flat;
-        idx += Math.round(lit * kLight);
-        if (lv) idx -= Math.min(steps, LEVELS[lv].amb);
+      let f = 0, tr = 0, tg = 0, tb = 0, tw = 0;
+      if (lv === DEEP || (inSel && !inSel[i])) f = -(steps + 2); // глухая тень: свет сюда не попадает
+      else {
+        if (lights.length && lv !== NOLIGHT) {
+          let nx, ny, nz;
+          if (lv >= FACET) { // ровная грань под наклоном
+            [nx, ny, nz] = facetNormal(lv);
+            if (relief) {
+              const tx = (texAt(x + 1, y) - texAt(x - 1, y)) / 320, ty = (texAt(x, y + 1) - texAt(x, y - 1)) / 320;
+              nx -= tx; ny -= ty;
+              const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+            }
+          } else {
+            const h = hgt[i];
+            // за краем фигуры: у нарисованной глубины высота та же (обрыва нет), у объёма — ноль
+            const at = (j, inside) => (inside && mask[j] ? hgt[j] : lv ? h : 0);
+            const gx = (at(i + 1, x < W - 1) - at(i - 1, x > 0)) / 2, gy = (at(i + W, y < H - 1) - at(i - W, y > 0)) / 2, l = Math.hypot(gx, gy, 1);
+            nx = -gx / l; ny = -gy / l; nz = 1 / l;
+          }
+          for (const L of lights) {
+            const lit = nx * L.lx + ny * L.ly + nz * L.lz - L.lz;
+            f += lit * L.k;
+            if (lit > 0 && !L.white) { const w = lit * L.w; tr += w * L.r; tg += w * L.g; tb += w * L.b; tw += w; }
+          }
+        }
+        if (lv >= 3 && lv <= 5) f -= LEVELS[lv].amb; // углубления темнее всегда, даже без света
       }
+      let idx = Math.round(f);
       if (tex) idx += Math.round(((texAt(x, y) - 128) / 127) * kTex);
-      idx = idx < -steps ? -steps : idx > steps ? steps : idx;
-      const n = tone(c, idx);
-      if (n !== c) tx.set(i, n);
+      idx = idx < lo ? lo : idx > steps ? steps : idx;
+      let n = tone(c, idx, mode);
+      if (tw > 0) { // окрашивание цветным светом, ступенями по 15%
+        const m = Math.round(Math.min(0.6, tw * 0.9) / 0.15) * 0.15;
+        if (m > 0) {
+          const mr = tr / tw, mg = tg / tw, mb = tb / tw, q = 1 - m;
+          n = U.rgba(Math.round((n & 255) * q + mr * m), Math.round(((n >>> 8) & 255) * q + mg * m), Math.round(((n >>> 16) & 255) * q + mb * m), n >>> 24);
+        }
+      }
+      if (n !== c) set(i, n);
     }
     // свечение: сами пиксели светлеют, соседи окрашиваются их цветом
-    const gr = P.glow;
+    const gr = Q.glow;
     for (const i of glow) {
-      const c = tone(d[i], steps);
+      const c = tone(d[i], steps, mode);
       if (gr > 0) {
         const gx = i % W, gy = (i / W) | 0;
         for (let yy = Math.max(y0, gy - gr); yy <= Math.min(y1, gy + gr); yy++) for (let xx = Math.max(x0, gx - gr); xx <= Math.min(x1, gx + gr); xx++) {
@@ -342,11 +399,19 @@
           if (j === i || !mask[j] || dd > gr + 0.5 || (depth && depth[j] === GLOW)) continue;
           const k = Math.round(150 * (1 - dd / (gr + 1))), cur = d[j];
           const mixed = U.blend((cur | 0xff000000) >>> 0, ((c & 0xffffff) | (k << 24)) >>> 0);
-          tx.set(j, ((mixed & 0xffffff) | (cur & 0xff000000)) >>> 0);
+          set(j, ((mixed & 0xffffff) | (cur & 0xff000000)) >>> 0);
         }
       }
-      tx.set(i, c);
+      set(i, c);
     }
+  };
+  function render() {
+    const s = X.session;
+    if (!s) return;
+    const { tx } = s, L = tx.layer;
+    tx.revert();
+    X.shade({ d: L.data, W: NPR.doc.width, H: NPR.doc.height, mask: s.mask, x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1,
+      depth: X.depthOf(L), inSel: s.inSel, P, tex: X.tex, set: (i, c) => tx.set(i, c) });
     tx.sync();
   }
   let raf = 0;
@@ -355,6 +420,7 @@
   /* Параметр изменился: начать предпросмотр (если ещё нет) и пересчитать. */
   function changed() {
     toneCache = new Map(); ramp = null;
+    if (X.session && !!X.session.inSel !== !!(P.outsideShadow && NPR.doc.sel)) { X.cancel(); } // область изменилась — собрать заново
     try { localStorage.setItem(OPT, JSON.stringify(P)); } catch (e) { /* не страшно */ }
     if (S.tool === 'light' && ensure()) schedule();
   }
@@ -363,7 +429,7 @@
     if (!s) return;
     flush(); render();
     X.session = null;
-    NPR.edit.finish(s.tx, X.tex && !P.light ? 'Текстура' : 'Свет и текстура');
+    if (NPR.edit.finish(s.tx, X.tex && !P.light ? 'Текстура' : 'Свет и текстура')) NPR.emit('record', X.recordStep());
     syncButtons(); V.redrawOver();
   };
   X.cancel = function () {
@@ -380,22 +446,46 @@
   function paintDepth(p) {
     const doc = NPR.doc, L = doc.active, W = doc.width, H = doc.height, map = X.depthOf(L, true);
     if (!stroke) stroke = new Map(); // что было под кистью — для отмены
-    const n = S.brushSize, o = (n / 2) | 0, val = X.brush === 7 ? 0 : X.brush;
+    const n = S.brushSize, o = (n / 2) | 0, val = brushValue();
     const dot = (cx, cy) => { for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = cx + i - o, y = cy + j - o; if (x < 0 || y < 0 || x >= W || y >= H) continue; const k = y * W + x; if (map[k] === val) continue; if (!stroke.has(k)) stroke.set(k, map[k]); map[k] = val; } };
     if (last) NPR.plotLine(last.x, last.y, p.x, p.y, dot); else dot(p.x, p.y);
     last = { x: p.x, y: p.y };
     depthDirty = true;
   }
+  const FACET_BRUSH = 9, ERASE_BRUSH = 10;
+  function brushValue() { return X.brush === ERASE_BRUSH ? 0 : X.brush === FACET_BRUSH ? X.facetCode(P.facetDir, P.facetTilt) : X.brush; }
+  X.light = 0; // какой источник направляет протяжка по холсту
   function aim(p) {
-    const s = X.session;
+    const s = X.session, l = P.lights[X.light];
+    if (!l) return;
     const cx = (s.x0 + s.x1) / 2, cy = (s.y0 + s.y1) / 2;
     if (p.x === Math.round(cx) && p.y === Math.round(cy)) return;
-    P.angle = (Math.round((Math.atan2(p.y - cy, p.x - cx) * 180) / Math.PI) + 360) % 360;
-    $('fxAngle').value = P.angle;
+    l.angle = (Math.round((Math.atan2(p.y - cy, p.x - cx) * 180) / Math.PI) + 360) % 360;
+    const inp = document.querySelector(`#fxLights [data-i="${X.light}"] .ang`);
+    if (inp) inp.value = l.angle;
   }
+  /* Залить текущей кистью глубины всё закрашенное внутри выделения. */
+  X.fillSelection = function () {
+    const doc = NPR.doc, sel = doc.sel, L = doc.active;
+    if (!sel) return NPR.toast('Сначала выделите область');
+    if (!X.brush) return NPR.toast('Выберите кисть глубины, наклона или тени');
+    const W = doc.width, map = X.depthOf(L, true), val = brushValue(), was = new Map();
+    for (let i = 0; i < map.length; i++) {
+      if (L.data[i] >>> 24 === 0 || map[i] === val || !Sel.has(sel, i % W, (i / W) | 0)) continue;
+      was.set(i, map[i]); map[i] = val;
+    }
+    if (!was.size) return;
+    NPR.history.push(depthCmd(L, was, 'Глубина по выделению'));
+    depthDirty = true; changed(); V.redrawOver(); NPR.emit('docChanged');
+  };
   NPR.tools.light = {
     usesBrush: true,
     down(p) {
+      if (X.pick) { // ставим точку пути света
+        P.anim['p' + X.pick] = { x: p.x, y: p.y };
+        X.pick = 0; syncAnim(); V.redrawOver(); saveP();
+        return false;
+      }
       if (!ensure()) return false;
       last = null;
       if (X.brush) paintDepth(p); else aim(p);
@@ -414,6 +504,74 @@
     },
     cancel() { last = null; stroke = null; },
   };
+  /* ---------- анимация света ----------
+     Свет проходит от точки 1 к точке 2 (или по кругу); каждый кадр — копия слоя
+     с этим светом. Результат — новый слой-спрайтшит, оригинал не меняется. */
+  X.pick = 0;
+  const saveP = () => { try { localStorage.setItem(OPT, JSON.stringify(P)); } catch (e) { /* не страшно */ } };
+  function objectArea(doc, L) {
+    const W = doc.width, H = doc.height, d = L.data, sel = doc.sel, mask = new Uint8Array(W * H);
+    let x0 = W, y0 = H, x1 = -1, y1 = -1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (d[i] >>> 24 === 0 || (sel && !Sel.has(sel, x, y))) continue;
+      mask[i] = 1;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    return x1 < 0 ? null : { mask, x0, y0, x1, y1 };
+  }
+  /* Свет для кадра f: угол и высота из положения точки на пути. */
+  X.lightAt = function (A, area, f) {
+    const N = A.frames, cx = (area.x0 + area.x1 + 1) / 2, cy = (area.y0 + area.y1 + 1) / 2;
+    const rad = Math.max(area.x1 - area.x0, area.y1 - area.y0, 2) / 2;
+    const p1 = A.p1 || { x: cx - rad * 2, y: cy - rad * 1.5 }, p2 = A.p2 || { x: cx + rad * 2, y: cy - rad * 1.5 };
+    let px, py;
+    if (A.mode === 'circle') { // по кругу через точку 1, радиус — до точки 1
+      const a0 = Math.atan2(p1.y - cy, p1.x - cx), r = Math.hypot(p1.x - cx, p1.y - cy) || rad * 2, a = a0 + (Math.PI * 2 * f) / N;
+      px = cx + Math.cos(a) * r; py = cy + Math.sin(a) * r;
+    } else {
+      const t = A.pingpong ? 1 - Math.abs(1 - (2 * f) / N) : N > 1 ? f / (N - 1) : 0;
+      px = p1.x + (p2.x - p1.x) * t; py = p1.y + (p2.y - p1.y) * t;
+    }
+    const dist = Math.hypot(px - cx, py - cy);
+    return {
+      angle: ((Math.atan2(py - cy, px - cx) * 180) / Math.PI + 360) % 360,
+      elev: A.byDist ? U.clamp((Math.atan2(rad * 1.3, dist) * 180) / Math.PI, 8, 85) : null,
+      x: px, y: py,
+    };
+  };
+  X.animate = function () {
+    X.cancel();
+    NPR.edit.commitFloat();
+    const doc = NPR.doc, L = doc.active, W = doc.width, H = doc.height, A = P.anim;
+    const area = objectArea(doc, L);
+    if (!area) return NPR.toast(doc.sel ? 'В выделении нет закрашенных пикселей' : 'На слое нет закрашенных пикселей');
+    const li = U.clamp(X.light, 0, P.lights.length - 1), depth = X.depthOf(L), base = L.data, frames = [];
+    X.resetTone();
+    for (let f = 0; f < A.frames; f++) {
+      const at = X.lightAt(A, area, f), lights = P.lights.map((l, i) => (i === li ? { ...l, on: true, angle: at.angle, elev: at.elev ?? l.elev } : l));
+      const d = base.slice();
+      X.shade({ d, W, H, mask: area.mask, x0: area.x0, y0: area.y0, x1: area.x1, y1: area.y1, depth, inSel: null,
+        P: { ...P, light: true, lights }, tex: X.tex, set: (i, c) => { d[i] = c; } });
+      frames.push(d);
+    }
+    NPR.ops.snap('Анимация света', (dc) => {
+      const N = dc.newLayer(L.name + NPR.t(' — свет'), frames[0]);
+      N.frames = frames; N.frame = 0; N.opacity = L.opacity;
+      dc.addLayerRaw(N, dc.indexOf(L.id) + 1);
+    });
+    NPR.toast(`Готово: слой-спрайтшит из ${A.frames} кадров. Оригинал не тронут`);
+  };
+  function syncAnim() {
+    const A = P.anim;
+    $('fxAnimFrames').value = A.frames; $('fxAnimMode').value = A.mode;
+    $('fxAnimPing').checked = A.pingpong; $('fxAnimDist').checked = A.byDist;
+    $('fxAnimP2').disabled = A.mode === 'circle';
+    $('fxAnimP1').setAttribute('aria-pressed', String(X.pick === 1));
+    $('fxAnimP2').setAttribute('aria-pressed', String(X.pick === 2));
+  }
+  X.syncAnim = syncAnim;
+
   /* Поверх холста: карта глубины и значок источника света. */
   X.drawOverlay = function (ctx) {
     if (S.tool !== 'light') return;
@@ -424,20 +582,44 @@
       if (depthDirty || depthCanvas.width !== W || depthCanvas.height !== H || depthCanvas._src !== map) {
         depthCanvas.width = W; depthCanvas.height = H;
         const id = new ImageData(W, H), o = new Uint32Array(id.data.buffer);
-        for (let i = 0; i < o.length; i++) { const lv = map[i]; if (lv) { const [r, g, b] = LEVELS[lv].color; o[i] = U.rgba(r, g, b, 150); } }
+        for (let i = 0; i < o.length; i++) {
+          const lv = map[i];
+          if (!lv) continue;
+          if (lv >= FACET) { const [r, g, b] = U.hsvToRgb(Math.floor((lv - FACET) / 7) * 11.25, 0.75, 1); o[i] = U.rgba(r, g, b, 150); }
+          else if (LEVELS[lv]) { const [r, g, b] = LEVELS[lv].color; o[i] = U.rgba(r, g, b, 150); }
+        }
         depthCanvas.getContext('2d').putImageData(id, 0, 0);
         depthCanvas._src = map; depthDirty = false;
       }
       ctx.drawImage(depthCanvas, V.ox, V.oy, W * z, H * z);
     }
+    // путь анимации света
+    const A = P.anim, area = { x0: 0, y0: 0, x1: W - 1, y1: H - 1 };
+    if (A.p1 || A.p2 || X.pick) {
+      const ar = (s0 => s0 ? { x0: s0.x0, y0: s0.y0, x1: s0.x1, y1: s0.y1 } : area)(X.session);
+      const pts = [];
+      for (let f = 0; f <= 24; f++) { const q = X.lightAt({ ...A, frames: 24, pingpong: false }, ar, f); pts.push([V.ox + (q.x + 0.5) * z, V.oy + (q.y + 0.5) * z]); }
+      ctx.setLineDash([4, 4]); ctx.lineWidth = 1.5; ctx.strokeStyle = '#ffe27a';
+      ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); ctx.setLineDash([]);
+      for (const [k, p] of [[1, A.p1], [2, A.mode === 'circle' ? null : A.p2]]) {
+        if (!p) continue;
+        const x = V.ox + (p.x + 0.5) * z, y = V.oy + (p.y + 0.5) * z;
+        ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fillStyle = '#ffe27a'; ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = '#000'; ctx.font = 'bold 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(k), x, y + 0.5);
+      }
+    }
     const s = X.session;
     if (s && P.light) {
       const cx = V.ox + ((s.x0 + s.x1 + 1) / 2) * z, cy = V.oy + ((s.y0 + s.y1 + 1) / 2) * z;
-      const r = Math.max(40, (Math.max(s.x1 - s.x0, s.y1 - s.y0) * z) / 2 + 26), a = (P.angle * Math.PI) / 180;
-      const sx = cx + Math.cos(a) * r, sy = cy + Math.sin(a) * r;
-      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(cx + Math.cos(a) * (r - 22), cy + Math.sin(a) * (r - 22));
-      ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#ffe27a'; ctx.stroke();
-      ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI * 2); ctx.fillStyle = '#ffe27a'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#000'; ctx.stroke();
+      const r = Math.max(40, (Math.max(s.x1 - s.x0, s.y1 - s.y0) * z) / 2 + 26);
+      P.lights.forEach((l, i) => {
+        if (!l.on) return;
+        const a = (l.angle * Math.PI) / 180, sx = cx + Math.cos(a) * r, sy = cy + Math.sin(a) * r, sel = i === X.light;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(cx + Math.cos(a) * (r - 22), cy + Math.sin(a) * (r - 22));
+        ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = l.color; ctx.stroke();
+        ctx.beginPath(); ctx.arc(sx, sy, sel ? 9 : 6, 0, Math.PI * 2); ctx.fillStyle = l.color; ctx.fill();
+        ctx.lineWidth = sel ? 2.5 : 1.5; ctx.strokeStyle = sel ? '#fff' : '#000'; ctx.stroke();
+      });
     }
   };
 
@@ -459,14 +641,42 @@
     $('fxTexKeep').disabled = !X.tex || !X.tex.random;
   }
   function renderBrushes() {
-    const names = ['Свет', ...LEVELS.slice(1).map((l) => l.name), 'Стереть'];
+    const names = ['Свет', ...LEVELS.slice(1).map((l) => l.name), 'Наклон', 'Стереть'];
+    const tips = { 0: 'Тянуть по холсту — задавать, откуда светит выбранный источник', 7: 'Свет сюда не попадает: пиксели уходят в тень', 8: 'Свет не меняет эти пиксели (текстура остаётся)', 9: 'Ровная грань, повёрнутая как задано ниже: освещается целиком одинаково', 10: 'Стирать нарисованную карту' };
     $('fxBrushes').replaceChildren(...names.map((name, i) => {
-      const b = el('button', { type: 'button', 'aria-pressed': String(X.brush === i), title: i === 0 ? 'Тянуть по холсту — задавать, откуда свет' : i === 7 ? 'Стирать нарисованную глубину' : 'Рисовать на холсте: ' + name.toLowerCase() }, name.replace('Углубление: ', '↓ '));
-      if (i > 0 && i < 7) b.style.setProperty('--c', `rgb(${LEVELS[i].color.join(',')})`);
+      const b = el('button', { type: 'button', 'aria-pressed': String(X.brush === i), title: tips[i] || 'Рисовать на холсте: ' + name.toLowerCase() }, name.replace('Углубление: ', '↓ '));
+      if (i > 0 && i < 9) b.style.setProperty('--c', `rgb(${LEVELS[i].color.join(',')})`);
+      if (i === 9) b.style.setProperty('--c', 'linear-gradient(#f66,#6cf)');
       b.addEventListener('click', () => { X.brush = i; renderBrushes(); V.redrawOver(); });
       return b;
     }));
   }
+  function renderLights() {
+    $('fxLights').replaceChildren(...P.lights.map((l, i) => {
+      const num = (cls, key, lo, hi, title) => {
+        const inp = el('input', { type: 'number', class: cls, min: lo, max: hi, value: l[key], title, inputmode: 'numeric' });
+        inp.addEventListener('input', () => { if (inp.value === '') return; l[key] = U.clamp(Math.round(+inp.value) || 0, lo, hi); changed(); });
+        return inp;
+      };
+      const on = el('input', { type: 'checkbox', title: 'Включить источник' });
+      on.checked = l.on;
+      on.addEventListener('change', () => { l.on = on.checked; changed(); });
+      const col = el('input', { type: 'color', value: l.color, title: 'Цвет света. Белый только осветляет, цветной ещё и окрашивает' });
+      col.addEventListener('input', () => { l.color = col.value; changed(); });
+      const pow = el('input', { type: 'range', min: 0, max: 100, value: l.strength, title: 'Сила' });
+      pow.addEventListener('input', () => { l.strength = +pow.value; changed(); });
+      const del = el('button', { type: 'button', class: 'ico', title: 'Убрать источник', 'aria-label': 'Убрать источник', disabled: P.lights.length < 2 }, '✕');
+      del.addEventListener('click', (e) => { e.stopPropagation(); P.lights.splice(i, 1); X.light = Math.min(X.light, P.lights.length - 1); renderLights(); changed(); });
+      const row = el('div', { class: 'light' + (i === X.light ? ' active' : ''), 'data-i': i, title: 'Выбранный источник направляется протяжкой по холсту' },
+        on, col, el('label', null, num('ang', 'angle', 0, 359, 'С какой стороны светит: 0° — справа, 90° — снизу, 225° — сверху слева'), '°'),
+        el('label', { title: 'Высота над рисунком: низкий свет даёт резкие блики по краям' }, '↑', num('elev', 'elev', 5, 85, 'Высота света, 5–85°'), '°'), pow, del);
+      row.addEventListener('pointerdown', () => { if (X.light !== i) { X.light = i; for (const r of $('fxLights').children) r.classList.toggle('active', r === row); V.redrawOver(); } });
+      return row;
+    }));
+    $('fxLightAdd').disabled = P.lights.length >= MAXLIGHTS;
+  }
+  X.renderLights = renderLights;
+
   X.show = function (on) { $('fxPanel').hidden = !on; document.body.classList.toggle('fx-on', on); V.redrawOver(); };
 
   X.init = function () {
@@ -474,7 +684,18 @@
     loadTextures();
     const num = (id, key, lo, hi) => { $(id).value = P[key]; $(id).addEventListener('input', (e) => { if (e.target.value === '') return; P[key] = U.clamp(Math.round(+e.target.value) || 0, lo, hi); changed(); }); };
     const chk = (id, key) => { $(id).checked = P[key]; $(id).addEventListener('change', (e) => { P[key] = e.target.checked; changed(); }); };
-    chk('fxLight', 'light'); num('fxAngle', 'angle', 0, 359); num('fxStrength', 'strength', 0, 100);
+    if (!Array.isArray(P.lights) || !P.lights.length) P.lights = [{ on: true, angle: P.angle ?? 225, elev: 40, strength: P.strength ?? 60, color: '#ffffff' }];
+    delete P.angle; delete P.strength;
+    chk('fxLight', 'light'); chk('fxOutside', 'outsideShadow');
+    num('fxFacetDir', 'facetDir', 0, 359); num('fxFacetTilt', 'facetTilt', 0, 79);
+    $('fxLightAdd').addEventListener('click', () => {
+      if (P.lights.length >= MAXLIGHTS) return;
+      const last = P.lights[P.lights.length - 1];
+      P.lights.push({ on: true, angle: (last.angle + 180) % 360, elev: 25, strength: 45, color: '#5aa8ff' }); // второй — холодный контровой
+      X.light = P.lights.length - 1;
+      renderLights(); changed();
+    });
+    $('fxFillSel').addEventListener('click', X.fillSelection);
     chk('fxBevel', 'bevel'); num('fxBevelW', 'bevelW', 1, 32);
     num('fxSteps', 'steps', 1, 4);
     $('fxMode').value = P.mode; $('fxMode').addEventListener('change', (e) => { P.mode = e.target.value; changed(); });
@@ -529,6 +750,13 @@
       X.tex = null;
       saveTextures(); renderTextures(); changed();
     });
-    renderTextures(); renderBrushes(); syncButtons();
+    if (!P.anim) P.anim = { frames: 8, mode: 'line', pingpong: true, byDist: true, p1: null, p2: null };
+    $('fxAnimFrames').addEventListener('input', (e) => { if (e.target.value !== '') { P.anim.frames = U.clamp(Math.round(+e.target.value) || 2, 2, 64); saveP(); } });
+    $('fxAnimMode').addEventListener('change', (e) => { P.anim.mode = e.target.value; syncAnim(); V.redrawOver(); saveP(); });
+    $('fxAnimPing').addEventListener('change', (e) => { P.anim.pingpong = e.target.checked; saveP(); });
+    $('fxAnimDist').addEventListener('change', (e) => { P.anim.byDist = e.target.checked; saveP(); });
+    for (const k of [1, 2]) $('fxAnimP' + k).addEventListener('click', () => { X.pick = X.pick === k ? 0 : k; syncAnim(); if (X.pick) NPR.toast(`Щёлкните по холсту, где будет точка ${k}`); });
+    $('fxAnimGo').addEventListener('click', X.animate);
+    renderTextures(); renderBrushes(); renderLights(); syncButtons(); syncAnim();
   };
 })(window.NPR);

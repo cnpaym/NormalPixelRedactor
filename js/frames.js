@@ -6,7 +6,7 @@
 (function (NPR) {
   const U = NPR.util, V = NPR.view, { el } = U;
   const $ = (id) => document.getElementById(id);
-  const F = (NPR.frames = { onion: true, diff: false, timer: 0, fps: 8 });
+  const F = (NPR.frames = { onion: true, onionNext: false, diff: false, timer: 0, fps: 8, sync: true });
   const sprite = () => { const L = NPR.doc && NPR.doc.active; return L && L.frames ? L : null; };
 
   /* ---------- операции ---------- */
@@ -49,13 +49,17 @@
       S.frame = j; S.data = f[j];
     });
   };
-  F.go = function (i, quiet) {
+  /* Перейти на кадр i. В синхронном режиме все слои-спрайтшиты встают на тот же
+     кадр (короткие — по кругу): персонаж, тень, шлейф и частицы листаются вместе. */
+  F.current = () => { const L = sprite(); return L ? L.frame : 0; };
+  F.go = function (i, quiet, force) {
     const L = sprite();
     if (!L) return;
     if (!quiet) NPR.edit.commitFloat();
     i = ((i % L.frames.length) + L.frames.length) % L.frames.length;
-    if (i === L.frame) return;
+    if (i === L.frame && !force) return;
     L.frame = i; L.data = L.frames[i];
+    if (F.sync) for (const X of NPR.doc.layers) if (X !== L && X.frames) { X.frame = i % X.frames.length; X.data = X.frames[X.frame]; }
     NPR.doc.markAllDirty();
     render();
   };
@@ -71,8 +75,23 @@
 
   /* ---------- onion skin ---------- */
   let onionCanvas = null, onionBuf = null, onionDirty = true;
+  let nextCanvas = null, nextBuf = null;
   F.drawOnion = function (ctx) {
     const L = sprite(), doc = NPR.doc;
+    if (F.onionNext && !F.timer && L && L.visible && L.frame < L.frames.length - 1) { // следующий кадр — зеленоватым
+      const nb = L.frames[L.frame + 1];
+      if (!nextCanvas) nextCanvas = document.createElement('canvas');
+      if (nextBuf !== nb || onionDirty || nextCanvas.width !== doc.width || nextCanvas.height !== doc.height) {
+        nextCanvas.width = doc.width; nextCanvas.height = doc.height;
+        const id = new ImageData(doc.width, doc.height), o = new Uint32Array(id.data.buffer);
+        for (let i = 0; i < o.length; i++) if (nb[i] >>> 24) o[i] = U.rgba(((nb[i] & 255) >> 1) + 30, (((nb[i] >>> 8) & 255) >> 1) + 110, (((nb[i] >>> 16) & 255) >> 1) + 60);
+        nextCanvas.getContext('2d').putImageData(id, 0, 0);
+        nextBuf = nb;
+      }
+      ctx.globalAlpha = 0.3;
+      ctx.drawImage(nextCanvas, V.ox, V.oy, doc.width * V.zoom, doc.height * V.zoom);
+      ctx.globalAlpha = 1;
+    }
     if (!F.onion || F.timer || !L || L.frame === 0 || !L.visible) return;
     const buf = L.frames[L.frame - 1];
     if (!onionCanvas) onionCanvas = document.createElement('canvas');
@@ -154,6 +173,7 @@
     $('framePlay').textContent = F.timer ? '■ Стоп' : '▶ Проиграть';
     $('frameOnion').checked = F.onion;
     $('frameDiff').checked = F.diff;
+    $('frameNext').checked = F.onionNext; $('frameSync').checked = F.sync;
     V.redraw();
   }
   F.render = render;
@@ -186,6 +206,64 @@
     if (v.lua) setTimeout(() => U.download(new Blob([F.luau(layers, doc.width, doc.height, v.dir === 'down', v.gap, k, img, base + '.png')], { type: 'text/plain' }), base + '.lua'), 400);
     NPR.toast(`Сохранён лист ${img.w * k}×${img.h * k}`);
   };
+  /* ---------- экспорт GIF ----------
+     Кадр f собирается из всех видимых слоёв: у спрайтшита берётся его кадр f
+     (короткие спрайтшиты идут по кругу), обычный слой одинаков на всех кадрах. */
+  F.compositeFrame = function (doc, f, only) {
+    const W = doc.width, out = new Uint32Array(W * doc.height);
+    for (const L of doc.layers) {
+      if (only ? L !== only : !L.visible || L.opacity <= 0) continue;
+      const src = L.frames ? L.frames[f % L.frames.length] : L.data, op = only ? 255 : Math.round(L.opacity * 255);
+      for (let i = 0; i < out.length; i++) {
+        let s = src[i];
+        if (!(s >>> 24)) continue;
+        if (op < 255) { const a = ((s >>> 24) * op + 127) / 255 | 0; if (!a) continue; s = ((s & 0xffffff) | (a << 24)) >>> 0; }
+        const o = out[i];
+        out[i] = !(o >>> 24) || s >>> 24 === 255 ? s : U.blend(o, s);
+      }
+    }
+    return out;
+  };
+  F.gifDialog = async function () {
+    NPR.edit.commitFloat();
+    const doc = NPR.doc, sprites = doc.layers.filter((l) => l.frames && l.visible), act = sprite();
+    const n = sprites.length ? Math.max(...sprites.map((l) => l.frames.length)) : 1;
+    const opts = [];
+    if (sprites.length) opts.push(['all', `Анимация: все видимые слои (${n} кадр.)`]);
+    if (act) opts.push(['active', `Только слой «${act.name}» (${act.frames.length} кадр.)`]);
+    opts.push(['still', 'Одна картинка (как сейчас на холсте)']);
+    const mem = (() => { try { return JSON.parse(localStorage.getItem('npr.gif')) || {}; } catch (e) { return {}; } })();
+    const v = await NPR.dialog({
+      title: 'Экспорт GIF', okLabel: 'Сохранить GIF',
+      fields: [
+        { id: 'what', label: 'Что сохранить', type: 'select', value: opts[0][0], options: opts },
+        { id: 'fps', label: 'Кадров в секунду', type: 'number', value: F.fps, min: 1, max: 50 },
+        { id: 'scale', label: 'Масштаб', type: 'select', value: mem.scale || 4, options: [1, 2, 3, 4, 6, 8, 10].map((k) => [k, '×' + k]) },
+        { id: 'bg', label: 'Фон', type: 'select', value: mem.bg || 'none', options: [['none', 'прозрачный'], ['secondary', 'дополнительный цвет'], ['#151515', 'тёмный #151515'], ['#ffffff', 'белый']] },
+        { id: 'loop', label: 'Повторять по кругу', type: 'checkbox', value: mem.loop !== false },
+        { type: 'note', label: 'В GIF нет полупрозрачности: на прозрачном фоне мягкие края станут резкими. Для свечения и дыма лучше выбрать фон.' },
+      ],
+      check: (x) => (x.fps >= 1 && x.fps <= 50 ? null : { error: 'Кадров в секунду — от 1 до 50' }),
+    });
+    if (!v) return;
+    try { localStorage.setItem('npr.gif', JSON.stringify({ scale: +v.scale, bg: v.bg, loop: v.loop })); } catch (e) { /* не страшно */ }
+    doc.flush();
+    const W = doc.width, H = doc.height, k = +v.scale;
+    if (Math.max(W, H) * k > 4096) return NPR.toast('GIF получается больше 4096 px. Уменьшите масштаб', true);
+    let frames;
+    if (v.what === 'still') frames = [doc.comp32.slice()];
+    else if (v.what === 'active') frames = act.frames.map((_, f) => F.compositeFrame(doc, f, act));
+    else frames = Array.from({ length: n }, (_, f) => F.compositeFrame(doc, f));
+    const bg = v.bg === 'none' ? null : v.bg === 'secondary' ? NPR.state.secondary & 0xffffff : U.parseHex(v.bg) & 0xffffff;
+    NPR.toast('Собираю GIF…');
+    await new Promise((r) => setTimeout(r, 30));
+    const prep = NPR.gif.prepare(frames, W, H, { bg, scale: k });
+    const bytes = NPR.gif.encode(prep, W * k, H * k, { delay: 100 / v.fps, loop: v.loop });
+    const name = NPR.io.safeName(doc.name) + (v.what === 'active' ? '_' + NPR.io.safeName(act.name) : '') + '.gif';
+    U.download(new Blob([bytes], { type: 'image/gif' }), name);
+    NPR.toast(`Сохранён GIF ${W * k}×${H * k}, кадров: ${frames.length}`);
+    return bytes;
+  };
   /* sheets: массив спрайтшитов, каждый — массив кадров W×H. */
   F.compose = function (sheets, W, H, down, gap) {
     const maxN = Math.max(...sheets.map((s) => s.length));
@@ -207,8 +285,12 @@
     bind('frameRight', () => { F.stop(); F.shift(1); });
     bind('framePlay', F.play);
     bind('frameExport', F.exportDialog);
+    bind('frameGif', F.gifDialog);
     $('frameOnion').addEventListener('change', (e) => { F.onion = e.target.checked; V.redraw(); });
     $('frameDiff').addEventListener('change', (e) => { F.diff = e.target.checked; V.redraw(); });
+    $('frameNext').addEventListener('change', (e) => { F.onionNext = e.target.checked; V.redraw(); });
+    $('frameSync').addEventListener('change', (e) => { F.sync = e.target.checked; F.go(F.current(), true, true); });
+    bind('frameMenu', (e) => NPR.popup(e.currentTarget, NPR.anim.menu()));
     $('frameFps').addEventListener('input', (e) => { F.fps = U.clamp(Math.round(+e.target.value) || 8, 1, 60); if (F.timer) { F.stop(); F.play(); } });
     NPR.on('layers', render);
     NPR.on('history', render);

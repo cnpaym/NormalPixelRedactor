@@ -99,10 +99,18 @@
         return !r.error;
       };
       form.addEventListener('input', refresh);
-      let result = null;
-      form.addEventListener('submit', (e) => { if (!refresh()) e.preventDefault(); else result = values(); });
-      cancel.addEventListener('click', () => dlg.close());
-      dlg.addEventListener('close', () => { dlg.remove(); resolve(result); });
+      let result = null, settled = false;
+      // ответ отдаётся сразу, не дожидаясь события close (оно приходит с задержкой)
+      const done = () => { if (settled) return; settled = true; dlg.remove(); resolve(result); };
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!refresh()) return;
+        result = values();
+        dlg.close();
+        done();
+      });
+      cancel.addEventListener('click', () => { dlg.close(); done(); });
+      dlg.addEventListener('close', done);
       refresh();
       dlg.showModal();
       const first = form.querySelector('input,select');

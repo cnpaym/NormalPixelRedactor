@@ -258,8 +258,28 @@
       const tx = new NPR.Tx(doc, L), color = ev.button === 2 ? S.secondary : S.primary;
       const P = painter(tx, color, false);
       for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) if (r.full[y * W + x]) P.plot(x, y);
-      if (finish(tx, 'Заливка')) NPR.emit('colorUsed', color);
+      if (finish(tx, 'Заливка')) { NPR.emit('colorUsed', color); NPR.emit('record', { t: 'fill', color: U.toHex(color, true) }); }
       return false; // действие мгновенное, тянуть нечего
+    },
+  };
+
+  /* ---------- обводка ----------
+     Щелчок по объекту обводит его; Shift+щелчок — все объекты слоя. ЛКМ основным цветом, ПКМ вторичным. */
+  T.outline = {
+    down(p, ev) {
+      const L = editableLayer();
+      if (!L) return false;
+      const doc = NPR.doc;
+      let region = null;
+      if (!ev.shiftKey) {
+        region = NPR.ops.componentAt(L.data, doc.width, doc.height, p.x, p.y);
+        if (!region) { NPR.toast('Щёлкните по объекту. Shift+щелчок — обвести всё на слое'); return false; }
+      }
+      const color = ev.button === 2 ? S.secondary : S.primary;
+      const n = NPR.ops.outline(color, S.outlineInside, S.outlineDiag, S.outlineWidth, region);
+      if (n) NPR.emit('record', { t: 'outline', color: U.toHex(color, true), width: S.outlineWidth, inside: S.outlineInside, diag: S.outlineDiag });
+      else NPR.toast('Обводить нечего: вокруг объекта нет свободных пикселей');
+      return false;
     },
   };
 
@@ -445,7 +465,7 @@
   };
 
   /* Инструменты с живым предпросмотром (градиент, свет и текстура). */
-  E.sessions = () => [NPR.gradient, NPR.fx].filter((m) => m && m.session);
+  E.sessions = () => [NPR.gradient, NPR.fx, NPR.text, NPR.anim && NPR.anim.smear].filter((m) => m && m.session);
   E.commitSessions = (except) => { for (const m of E.sessions()) if (m !== except) m.commit(); };
   E.cancelSessions = () => { const a = E.sessions(); for (const m of a) m.cancel(); return a.length > 0; };
 
@@ -550,6 +570,21 @@
     finish(tx, 'Удаление');
   };
   E.cut = function () { if (E.copy()) E.del(); };
+  /* Поставить выделенное (или весь слой) по центру холста по видимым пикселям. axis: 'h' | 'v' | 'both' */
+  E.center = function (axis) {
+    const doc = NPR.doc;
+    E.commitSessions();
+    if (!doc.float && !E.lift()) return;
+    const f = doc.float;
+    let x0 = f.w, y0 = f.h, x1 = -1, y1 = -1;
+    for (let y = 0; y < f.h; y++) for (let x = 0; x < f.w; x++) if (f.data[y * f.w + x] >>> 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    if (x1 < 0) { E.cancelFloat(); NPR.toast('Здесь нет закрашенных пикселей'); return; }
+    if (axis !== 'v') f.x = Math.floor((doc.width - (x1 - x0 + 1)) / 2) - x0;
+    if (axis !== 'h') f.y = Math.floor((doc.height - (y1 - y0 + 1)) / 2) - y0;
+    if (!f.whole) doc.sel = floatSel(f);
+    f.label = 'По центру';
+    E.commitFloat();
+  };
   E.selectAll = function () {
     E.commitFloat();
     NPR.doc.sel = Sel.rect(0, 0, NPR.doc.width, NPR.doc.height);

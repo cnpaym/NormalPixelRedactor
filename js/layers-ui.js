@@ -45,7 +45,7 @@
       const row = el('li', { class: 'layer' + (act ? ' active' : '') + (L.visible ? '' : ' hidden'), 'aria-current': act ? 'true' : null, draggable: 'true', title: 'Перетащите, чтобы изменить порядок. Двойной щелчок — переименовать' },
         toggleBtn(L.visible, L.visible ? ICON.eye : ICON.eyeOff, L.visible ? 'Скрыть слой' : 'Показать слой', () => { L.visible = !L.visible; changed(); }),
         thumb(L, doc),
-        el('span', { class: 'name' }, L.name, L.frames ? el('small', { title: 'Слой-спрайтшит: кадров ' + L.frames.length }, ` ▦${L.frames.length}`) : null),
+        el('span', { class: 'name' }, L.particles ? el('small', { title: 'Слой частиц: его эффект можно изменить инструментом «Частицы»' }, '✦ ') : null, L.text ? el('small', { title: 'Текстовый слой: его можно изменить инструментом «Текст»' }, 'T ') : null, L.name, L.frames ? el('small', { title: 'Слой-спрайтшит: кадров ' + L.frames.length }, ` ▦${L.frames.length}`) : null),
         toggleBtn(L.alphaLock, ICON.alpha, 'Блокировка прозрачности: рисовать только по закрашенным пикселям', () => { L.alphaLock = !L.alphaLock; changed(true); }),
         toggleBtn(L.locked, L.locked ? ICON.lock : ICON.unlock, L.locked ? 'Разблокировать слой' : 'Заблокировать слой', () => { L.locked = !L.locked; changed(true); }));
       row.addEventListener('click', () => select(L.id));
@@ -89,6 +89,7 @@
       const O = NPR.ops;
       const bind = (id, fn) => document.getElementById(id).addEventListener('click', fn);
       bind('layerAdd', O.addLayer);
+      bind('layerImport', () => NPR.actions.importLayer());
       bind('layerDup', O.duplicateLayer);
       bind('layerUp', () => O.moveLayer(1));
       bind('layerDown', () => O.moveLayer(-1));

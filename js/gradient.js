@@ -47,13 +47,32 @@
 
   /* ---------- отрисовка в слой ---------- */
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
-  function render() {
-    const s = G.session;
-    if (!s) return;
-    const { tx, region: r } = s, W = NPR.doc.width, d = tx.layer.data, alock = tx.layer.alphaLock;
-    tx.revert();
-    const table = getLUT(), type = S.gradType, N = S.gradSteps >= 2 ? S.gradSteps : 0, dither = N && S.gradDither, mix = S.gradBlend;
-    const dx = s.p1.x - s.p0.x, dy = s.p1.y - s.p0.y, L2 = dx * dx + dy * dy || 1, L = Math.sqrt(L2), base = Math.atan2(dy, dx), TAU = Math.PI * 2;
+  /* Таблица цветов для произвольного набора точек (для стилей текста). */
+  const lutCache = new Map();
+  G.lutFor = function (stops) {
+    const key = JSON.stringify(stops);
+    let t = lutCache.get(key);
+    if (!t) {
+      const st = stops.map(([p, h]) => ({ p, c: U.parseHex(h) })).filter((s) => s.c !== null).sort((a, b) => a.p - b.p);
+      t = new Uint32Array(LUT_N);
+      for (let i = 0; i < LUT_N; i++) t[i] = colorAt(st, i / (LUT_N - 1));
+      if (lutCache.size > 32) lutCache.clear();
+      lutCache.set(key, t);
+    }
+    return t;
+  };
+  /* Векторы градиента, лежащего на всей области под углом angle (как при простом щелчке). */
+  G.vectorFor = function (r, type, angle) {
+    const w = r.x1 - r.x0, h = r.y1 - r.y0, cx = r.x0 + w / 2, cy = r.y0 + h / 2, a = (angle * Math.PI) / 180, ux = Math.cos(a), uy = Math.sin(a);
+    const half = Math.max(0.5, (Math.abs(ux) * w + Math.abs(uy) * h) / 2);
+    if (type === 'linear') return [{ x: cx - ux * half, y: cy - uy * half }, { x: cx + ux * half, y: cy + uy * half }];
+    return [{ x: cx, y: cy }, { x: cx + ux * half, y: cy + uy * half }];
+  };
+  /* Залить область градиентом. o: { d, W, region: {full, x0..y1}, p0, p1, table, type, steps, dither, blend, alock, set(i, c) } */
+  G.paint = function (o) {
+    const { d, W, region: r, p0, p1, table, type, alock, set } = o, N = o.steps >= 2 ? o.steps : 0, dither = N && o.dither, mix = o.blend;
+    const dx = p1.x - p0.x, dy = p1.y - p0.y, L2 = dx * dx + dy * dy || 1, L = Math.sqrt(L2), base = Math.atan2(dy, dx), TAU = Math.PI * 2;
+    const s = { p0 };
     for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
       const i = y * W + x;
       if (!r.full[i]) continue;
@@ -74,8 +93,16 @@
       let n;
       if (alock) { if (old >>> 24 === 0) continue; n = (((mix ? U.blend(old, c) : c) & 0xffffff) | (old & 0xff000000)) >>> 0; }
       else n = mix ? U.blend(old, c) : c >>> 24 === 0 ? 0 : c;
-      if (n !== old) tx.set(i, n);
+      if (n !== old) set(i, n);
     }
+  };
+  function render() {
+    const s = G.session;
+    if (!s) return;
+    const { tx, region } = s;
+    tx.revert();
+    G.paint({ d: tx.layer.data, W: NPR.doc.width, region, p0: s.p0, p1: s.p1, table: getLUT(), type: S.gradType, steps: S.gradSteps,
+      dither: S.gradDither, blend: S.gradBlend, alock: tx.layer.alphaLock, set: (i, c) => tx.set(i, c) });
     tx.sync();
   }
   let raf = 0;
@@ -178,7 +205,11 @@
     if (s.p0.x === s.p1.x && s.p0.y === s.p1.y) defaultVector(s);
     render();
     G.session = null; drag = null;
-    if (NPR.edit.finish(s.tx, 'Градиент')) addRecent(G.current);
+    if (NPR.edit.finish(s.tx, 'Градиент')) {
+      addRecent(G.current);
+      syncAngle();
+      NPR.emit('record', { t: 'grad', stops: toStore(G.current).stops, type: S.gradType, angle: S.gradAngle, steps: S.gradSteps, dither: S.gradDither });
+    }
     syncButtons();
     V.redrawOver();
   };

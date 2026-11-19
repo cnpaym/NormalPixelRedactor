@@ -7,7 +7,7 @@
   const IO = (NPR.io = {});
   const FORMAT = 'NormalPixelRedactor', VERSION = 1;
 
-  const layerProps = (L) => ({ name: L.name, visible: L.visible, opacity: L.opacity, locked: L.locked, alphaLock: L.alphaLock });
+  const layerProps = (L) => ({ name: L.name, visible: L.visible, opacity: L.opacity, locked: L.locked, alphaLock: L.alphaLock, text: L.text || null, particles: L.particles || null });
   const bytesOf = (a) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
 
   /* extras[i] = { frames: [Uint32Array] | null, frame, depth: Uint8Array | null } */
@@ -15,13 +15,15 @@
     const w = meta.width | 0, h = meta.height | 0;
     if (!(w >= 1 && h >= 1 && w <= NPR.ops.MAX && h <= NPR.ops.MAX)) throw new Error('Недопустимый размер холста');
     const doc = new NPR.Doc(w, h);
-    doc.name = meta.name || 'Без названия';
+    doc.name = meta.name || NPR.t('Без названия');
     doc.layers = meta.layers.map((p, i) => {
       if (datas[i].length !== w * h) throw new Error('Повреждённые данные слоя «' + p.name + '»');
       const L = doc.newLayer(p.name, datas[i]);
       L.visible = p.visible !== false;
       L.opacity = typeof p.opacity === 'number' ? U.clamp(p.opacity, 0, 1) : 1;
       L.locked = !!p.locked; L.alphaLock = !!p.alphaLock;
+      if (p.text && typeof p.text === 'object') L.text = p.text;
+      if (p.particles && typeof p.particles === 'object') L.particles = p.particles;
       const x = (extras && extras[i]) || {};
       if (x.frames && x.frames.length && x.frames.every((f) => f.length === w * h)) {
         L.frames = x.frames; L.frame = U.clamp(x.frame | 0, 0, x.frames.length - 1); L.data = L.frames[L.frame];
@@ -145,13 +147,57 @@
     }
   };
 
+  const baseName = (f) => (f.name || '').replace(/\.[^.]+$/, '') || 'Картинка';
+  const isImage = (f) => /^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name || '');
+  const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { /* не страшно */ } return v; };
+
+  /* Картинка → новый слой. Если она больше холста, спрашиваем, что делать. */
+  IO.placeImage = async function (img, name) {
+    NPR.edit.commitFloat();
+    NPR.edit.commitSessions();
+    const doc = NPR.doc, O = NPR.ops;
+    let how = 'center';
+    if (img.w > doc.width || img.h > doc.height) {
+      const small = O.shrinkImage(img, doc.width, doc.height), canGrow = img.w <= O.MAX && img.h <= O.MAX;
+      const opts = [['fit', `уменьшить до ${small.w}×${small.h}`], ['center', 'обрезать края, оставить середину']];
+      if (canGrow) opts.push(['grow', `увеличить холст до ${Math.max(doc.width, img.w)}×${Math.max(doc.height, img.h)}`]);
+      const last = pref('npr.bigImage');
+      const v = await NPR.dialog({ title: 'Картинка больше холста', okLabel: 'Добавить слой', fields: [
+        { type: 'note', label: `«${name}» — ${img.w}×${img.h}, а холст ${doc.width}×${doc.height}.` },
+        { id: 'how', label: 'Что сделать', type: 'select', value: opts.some(([k]) => k === last) ? last : 'fit', options: opts },
+      ] });
+      if (!v) return false;
+      how = pref('npr.bigImage', v.how);
+    }
+    O.addLayerFromImage(img, name, how);
+    NPR.toast(`Новый слой «${name}». Сдвинуть — инструмент «Перемещение» (V)`);
+    return true;
+  };
   IO.importLayer = async function (file) {
     if (!file) return;
-    try {
-      const img = await U.decodeImage(file);
-      NPR.ops.addLayerFromImage(img, file.name.replace(/\.[^.]+$/, ''));
-      if (img.w > NPR.doc.width || img.h > NPR.doc.height) NPR.toast('Картинка больше холста, лишнее обрезано');
-    } catch (e) { NPR.toast('Не удалось прочитать картинку', true); }
+    let img;
+    try { img = await U.decodeImage(file); } catch (e) { return NPR.toast('Не удалось прочитать картинку', true); }
+    await IO.placeImage(img, baseName(file));
+  };
+  /* Файлы, перетащенные в окно: проект открывается, картинки — новым проектом или слоями. */
+  IO.dropFiles = async function (files) {
+    files = [...files];
+    const proj = files.find((f) => /\.(npr|json)$/i.test(f.name));
+    if (proj) return IO.openFile(proj);
+    const imgs = files.filter(isImage);
+    if (!imgs.length) return NPR.toast('Это не картинка и не проект .npr', true);
+    const many = imgs.length > 1, last = pref('npr.dropMode') || 'layer';
+    const v = await NPR.dialog({ title: many ? `Картинки: ${imgs.length}` : 'Картинка: ' + imgs[0].name, okLabel: 'Готово', fields: [
+      { id: 'mode', label: 'Как открыть', type: 'select', value: last, options: [
+        ['layer', many ? 'добавить новыми слоями в этот проект' : 'добавить новым слоем в этот проект'],
+        ['project', many ? 'новый проект (остальные — его слоями)' : 'открыть как новый проект'],
+      ] },
+    ] });
+    if (!v) return;
+    pref('npr.dropMode', v.mode);
+    let rest = imgs;
+    if (v.mode === 'project') { await IO.openFile(imgs[0]); rest = imgs.slice(1); }
+    for (const f of rest) await IO.importLayer(f);
   };
 
   /* what: 'all' | 'layer' | 'selection' */
@@ -195,6 +241,8 @@
     });
   }
   const get = (key) => idb('readonly', (s) => s.get(key));
+  IO.kvGet = async (key) => { try { return await get('kv:' + key); } catch (e) { return null; } };
+  IO.kvSet = (key, val) => idb('readwrite', (s) => s.put(val, 'kv:' + key));
   IO.newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   function thumbnail(doc) {

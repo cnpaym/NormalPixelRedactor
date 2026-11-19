@@ -23,18 +23,50 @@
   O.addLayer = () => snap('Новый слой', (doc) => {
     doc.addLayerRaw(doc.newLayer(), doc.indexOf(doc.activeId) + 1);
   });
-  O.addLayerFromImage = (img, name) => snap('Импорт слоя', (doc) => {
-    const data = new Uint32Array(doc.width * doc.height);
-    const w = Math.min(img.w, doc.width), h = Math.min(img.h, doc.height);
-    for (let y = 0; y < h; y++) data.set(img.data.subarray(y * img.w, y * img.w + w), y * doc.width);
-    doc.addLayerRaw(doc.newLayer(name, data), doc.indexOf(doc.activeId) + 1);
+  /* Картинка → новый слой над активным, по центру холста.
+     how — если картинка больше холста: 'fit' уменьшить целиком, 'center' обрезать края, 'grow' увеличить холст. */
+  O.addLayerFromImage = (img, name, how) => snap('Импорт слоя', (doc) => {
+    if (how === 'fit' && (img.w > doc.width || img.h > doc.height)) img = O.shrinkImage(img, doc.width, doc.height);
+    if (how === 'grow' && (img.w > doc.width || img.h > doc.height)) {
+      const nw = Math.min(O.MAX, Math.max(doc.width, img.w)), nh = Math.min(O.MAX, Math.max(doc.height, img.h));
+      O.cropTo(doc, -Math.round((nw - doc.width) / 2), -Math.round((nh - doc.height) / 2), nw, nh);
+    }
+    const W = doc.width, H = doc.height, data = new Uint32Array(W * H);
+    const ox = Math.floor((W - img.w) / 2), oy = Math.floor((H - img.h) / 2); // может быть < 0 — тогда края обрезаются
+    for (let y = Math.max(0, oy); y < Math.min(H, oy + img.h); y++) {
+      const x0 = Math.max(0, ox), x1 = Math.min(W, ox + img.w), sy = y - oy;
+      data.set(img.data.subarray(sy * img.w + (x0 - ox), sy * img.w + (x1 - ox)), y * W + x0);
+    }
+    const L = doc.newLayer(name, data);
+    doc.addLayerRaw(L, doc.indexOf(doc.activeId) + 1);
+    doc.activeId = L.id;
   });
+  /* Уменьшение с усреднением (с учётом прозрачности), чтобы скриншот или фото не рассыпались. */
+  O.shrinkImage = function (img, maxW, maxH) {
+    const k = Math.min(maxW / img.w, maxH / img.h, 1), w = Math.max(1, Math.round(img.w * k)), h = Math.max(1, Math.round(img.h * k));
+    const out = new Uint32Array(w * h), src = img.data;
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.floor((y * img.h) / h), y1 = Math.max(y0 + 1, Math.floor(((y + 1) * img.h) / h));
+      for (let x = 0; x < w; x++) {
+        const x0 = Math.floor((x * img.w) / w), x1 = Math.max(x0 + 1, Math.floor(((x + 1) * img.w) / w));
+        let r = 0, g = 0, b = 0, a = 0, n = 0;
+        for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) {
+          const c = src[yy * img.w + xx], A = c >>> 24;
+          r += (c & 255) * A; g += ((c >>> 8) & 255) * A; b += ((c >>> 16) & 255) * A; a += A; n++;
+        }
+        out[y * w + x] = a ? U.rgba(Math.round(r / a), Math.round(g / a), Math.round(b / a), Math.round(a / n)) : 0;
+      }
+    }
+    return { w, h, data: out };
+  };
   O.duplicateLayer = () => snap('Дублирование слоя', (doc) => {
     const L = doc.active, C = doc.newLayer(L.name + ' копия', L.data.slice());
     C.opacity = L.opacity; C.alphaLock = L.alphaLock;
     if (L.frames) { C.frames = L.frames.map((f) => f.slice()); C.frame = L.frame; C.data = C.frames[C.frame]; }
     if (L.depth) C.depth = L.depth.slice();
     if (L.depths) C.depths = L.depths.map((d) => d && d.slice());
+    if (L.text) C.text = JSON.parse(JSON.stringify(L.text));
+    if (L.particles) C.particles = JSON.parse(JSON.stringify(L.particles));
     doc.addLayerRaw(C, doc.indexOf(L.id) + 1);
   });
   O.deleteLayer = () => snap('Удаление слоя', (doc) => {
@@ -73,22 +105,59 @@
     NPR.emit('docChanged');
     return cmds.reduce((n, c) => n + c.idx.length, 0);
   };
-  /* Обводка объекта на активном слое. inside — по крайним пикселям самого объекта,
-     иначе по прозрачным пикселям вокруг. diag — считать соседями и диагональные. */
-  O.outline = function (color, inside, diag) {
+  /* Обводка. Чистая функция: какие пиксели закрасить.
+     inside — по краю самого объекта, иначе снаружи (только по прозрачным пикселям);
+     diag — соседи и по диагонали; width — толщина в пикселях; region — что считать объектом;
+     limit(x, y) — где можно рисовать (например, внутри выделения). */
+  O.outlinePixels = function (d, W, H, opt) {
+    const near = opt.diag ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const obj = new Uint8Array(W * H), out = [], inside = !!opt.inside, region = opt.region, limit = opt.limit;
+    for (let i = 0; i < obj.length; i++) obj[i] = d[i] >>> 24 && (!region || region[i]) ? 1 : 0;
+    const width = Math.max(1, opt.width | 0);
+    for (let pass = 0; pass < width; pass++) {
+      const add = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (inside ? !obj[i] : obj[i] || d[i] >>> 24) continue;
+        if (limit && !limit(x, y)) continue;
+        let hit = false;
+        for (const [dx, dy] of near) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; // край холста пустым не считается
+          if (inside ? !obj[ny * W + nx] : obj[ny * W + nx]) { hit = true; break; }
+        }
+        if (hit) add.push(i);
+      }
+      if (!add.length) break;
+      for (const i of add) { obj[i] = inside ? 0 : 1; out.push(i); }
+    }
+    return out;
+  };
+  /* Связный объект (по 8 соседям), в который попал пиксель (x, y). */
+  O.componentAt = function (d, W, H, x, y) {
+    if (x < 0 || y < 0 || x >= W || y >= H || d[y * W + x] >>> 24 === 0) return null;
+    const m = new Uint8Array(W * H), stack = [y * W + x];
+    m[y * W + x] = 1;
+    while (stack.length) {
+      const i = stack.pop(), cx = i % W, cy = (i / W) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (!m[j] && d[j] >>> 24) { m[j] = 1; stack.push(j); }
+      }
+    }
+    return m;
+  };
+  /* Обводка на активном слое (с учётом выделения). Возвращает число закрашенных пикселей. */
+  O.outline = function (color, inside, diag, width, region) {
     NPR.edit.commitFloat();
     const doc = NPR.doc, L = NPR.edit.editableLayer();
     if (!L) return 0;
-    const Sel = NPR.selection, W = doc.width, H = doc.height, src = L.data.slice(), tx = new NPR.Tx(doc, L);
-    const filled = (x, y) => x >= 0 && y >= 0 && x < W && y < H && src[y * W + x] >>> 24 !== 0;
-    const near = diag ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      if (doc.sel && !Sel.has(doc.sel, x, y)) continue;
-      const me = filled(x, y);
-      if (me !== !!inside) continue;
-      // снаружи ищем закрашенного соседа, внутри — пустого (край холста пустым не считается)
-      if (near.some(([dx, dy]) => (inside ? x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < H && !filled(x + dx, y + dy) : filled(x + dx, y + dy)))) tx.set(y * W + x, color);
-    }
+    const Sel = NPR.selection, W = doc.width, H = doc.height;
+    const px = O.outlinePixels(L.data.slice(), W, H, { inside, diag, width: width || 1, region, limit: doc.sel ? (x, y) => Sel.has(doc.sel, x, y) : null });
+    const tx = new NPR.Tx(doc, L);
+    for (const i of px) tx.set(i, color);
     const cmd = tx.commit('Обводка');
     if (cmd) { NPR.history.push(cmd); NPR.emit('docChanged'); }
     return cmd ? cmd.idx.length : 0;

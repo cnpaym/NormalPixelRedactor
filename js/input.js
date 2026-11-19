@@ -3,7 +3,7 @@
    Клавиши определяются по физическому положению (event.code),
    поэтому работают в любой раскладке. */
 (function (NPR) {
-  const S = NPR.state, V = NPR.view, T = NPR.tools, E = NPR.edit;
+  const S = NPR.state, V = NPR.view, T = NPR.tools, E = NPR.edit, U = NPR.util;
   const I = (NPR.input = { panning: false, busy: false, space: false });
 
   const PAINT = ['pencil', 'eraser', 'fill', 'line', 'rect', 'ellipse'];
@@ -50,6 +50,7 @@
   }
   function startGesture() {
     clearPress();
+    tc.steer = null;
     endStroke(true); // палец, который начал рисовать, оказался началом щипка
     pan = null; I.panning = false;
     V.hover = null;
@@ -73,6 +74,40 @@
     }
   }
 
+  /* ---------- курсор со смещением (тач) ----------
+     Палец не закрывает пиксель: он водит курсор, как тачпад (курсор сдвигается
+     на столько же, на сколько палец). Рисует кнопка «✎»: держишь — идёт штрих,
+     коротко нажал — один щелчок (пиксель, заливка, пипетка). */
+  const tc = { x: 0, y: 0, steer: null, drawing: false };
+  const tcPos = () => { const f = V.toDoc(tc.x, tc.y); return { x: Math.floor(f.fx), y: Math.floor(f.fy), sx: tc.x, sy: tc.y }; };
+  function tcPlace() { const c = document.getElementById('tcCursor'); if (c) c.style.transform = `translate(${tc.x}px, ${tc.y}px)`; }
+  I.syncTouchCursor = function () {
+    const c = document.getElementById('tcCursor'), b = document.getElementById('tcDraw');
+    if (!c || !b) return;
+    c.hidden = b.hidden = !S.touchCursor;
+    if (S.touchCursor && !tc.x && !tc.y) { tc.x = el.clientWidth / 2; tc.y = el.clientHeight / 2; }
+    tcPlace();
+  };
+  I.touchCursor = tc;
+  function tcStart(ev) {
+    if (tc.drawing || !S.touchCursor) return;
+    ev.preventDefault();
+    const tool = T[S.tool], p = tcPos();
+    NPR.frames.stop();
+    if (!SELECT.includes(S.tool) && !['gradient', 'refs', 'light', 'slice', 'text', 'particles', 'smear', 'cloth'].includes(S.tool)) E.commitFloat();
+    V.hover = p;
+    if (tool.down(p, { button: 0, pointerType: 'touch' }) !== false) { active = { tool, id: 'tc' }; I.busy = true; tc.drawing = true; }
+    document.getElementById('tcDraw').classList.add('on');
+    V.redrawOver();
+  }
+  function tcEnd() {
+    document.getElementById('tcDraw').classList.remove('on');
+    if (!tc.drawing) return;
+    tc.drawing = false;
+    if (active && active.id === 'tc') endStroke(false, tcPos(), { button: 0 });
+    V.redrawOver();
+  }
+
   /* ---------- указатель ---------- */
   function onDown(ev) {
     NPR.closePopup();
@@ -82,6 +117,10 @@
     try { el.setPointerCapture(ev.pointerId); } catch (e) { /* указатель уже отпущен */ }
     if (touch && ptrs.size >= 2) {
       if (gesture) gesture.n = Math.max(gesture.n, ptrs.size); else startGesture();
+      return;
+    }
+    if (touch && S.touchCursor && !S.penOnly) { // палец водит курсор
+      tc.steer = { id: ev.pointerId, fx: p.sx, fy: p.sy, cx: tc.x, cy: tc.y };
       return;
     }
     if (active || pan) return;
@@ -98,7 +137,7 @@
     else if (ev.altKey && PAINT.includes(name)) name = 'eyedropper';
     const tool = T[name];
     NPR.frames.stop();
-    if (name === 'gradient' || name === 'refs' || name === 'light' || name === 'slice') { /* сами решают, что закреплять */ }
+    if (['gradient', 'refs', 'light', 'slice', 'text', 'particles', 'smear', 'cloth'].includes(name)) { /* сами решают, что закреплять */ }
     else if (!SELECT.includes(name)) E.commitFloat();
     V.hover = p;
     if (tool.down(p, ev) !== false) {
@@ -112,6 +151,17 @@
     const rec = ptrs.get(ev.pointerId), p = pos(ev);
     if (rec) { rec.sx = p.sx; rec.sy = p.sy; }
     if (gesture) { updateGesture(); return; }
+    if (tc.steer && tc.steer.id === ev.pointerId) {
+      tc.x = U.clamp(tc.steer.cx + p.sx - tc.steer.fx, 0, el.clientWidth - 1);
+      tc.y = U.clamp(tc.steer.cy + p.sy - tc.steer.fy, 0, el.clientHeight - 1);
+      tcPlace();
+      const q = tcPos();
+      V.hover = q;
+      if (active && active.id === 'tc') active.tool.move(q, ev);
+      NPR.status.update(q);
+      V.redrawOver();
+      return;
+    }
     if (pan && pan.id === ev.pointerId) {
       V.pan(p.sx - pan.sx, p.sy - pan.sy);
       pan.sx = p.sx; pan.sy = p.sy;
@@ -132,6 +182,7 @@
     const cancel = ev.type === 'pointercancel';
     ptrs.delete(ev.pointerId);
     if (press && press.id === ev.pointerId) clearPress();
+    if (tc.steer && tc.steer.id === ev.pointerId) { tc.steer = null; return; }
     if (gesture) { if (![...ptrs.values()].some((p) => p.touch)) endGesture(); return; }
     if (pan && pan.id === ev.pointerId) { pan = null; I.panning = false; setCursor(); V.redrawOver(); return; }
     if (active && active.id === ev.pointerId) endStroke(cancel, pos(ev), ev);
@@ -158,7 +209,7 @@
   /* Настраиваемые клавиши (одна клавиша без Ctrl). Действие → код клавиши. */
   const TOOL_NAMES = { pencil: 'Карандаш', eraser: 'Ластик', fill: 'Заливка', eyedropper: 'Пипетка', line: 'Линия', rect: 'Прямоугольник', ellipse: 'Эллипс',
     select: 'Выделение', selectEllipse: 'Выделение эллипсом', lasso: 'Лассо', wand: 'Волшебная палочка', gradient: 'Градиент', light: 'Свет и текстура',
-    move: 'Перемещение', hand: 'Рука', refs: 'Референсы', slice: 'Roblox: 9-slice' };
+    move: 'Перемещение', hand: 'Рука', refs: 'Референсы', slice: 'Roblox: 9-slice', outline: 'Обводка', text: 'Текст', particles: 'Частицы', smear: 'Дуга удара', cloth: 'Ткань' };
   const ACTIONS = {};
   for (const t in TOOL_NAMES) ACTIONS['tool:' + t] = { label: TOOL_NAMES[t], run: () => NPR.setTool(t) };
   Object.assign(ACTIONS, {
@@ -174,9 +225,10 @@
     frameNew: { label: 'Новый кадр', run: () => NPR.frames.add() },
     side: { label: 'Правая панель', run: () => NPR.toggle('side') },
     shade: { label: 'Режим затенения', run: () => NPR.toggle('shade') },
+    cleanup: { label: 'Очистка пикселей (текущий кадр)', run: () => NPR.anim.cleanup(false) },
   });
   const DEFAULT_KEYS = { 'tool:pencil': 'KeyB', 'tool:eraser': 'KeyE', 'tool:fill': 'KeyG', 'tool:eyedropper': 'KeyI', 'tool:line': 'KeyL', 'tool:rect': 'KeyU', 'tool:ellipse': 'KeyO',
-    'tool:select': 'KeyM', 'tool:lasso': 'KeyQ', 'tool:wand': 'KeyW', 'tool:gradient': 'KeyD', 'tool:light': 'KeyT', 'tool:move': 'KeyV', 'tool:hand': 'KeyH', 'tool:refs': 'KeyR',
+    'tool:select': 'KeyM', 'tool:lasso': 'KeyQ', 'tool:wand': 'KeyW', 'tool:gradient': 'KeyD', 'tool:light': 'KeyT', 'tool:move': 'KeyV', 'tool:hand': 'KeyH', 'tool:refs': 'KeyR', 'tool:outline': 'KeyK', 'tool:text': 'KeyY', 'tool:particles': 'KeyP', 'tool:smear': 'KeyA', 'tool:cloth': 'KeyC', cleanup: 'KeyJ',
     swap: 'KeyX', brushDown: 'BracketLeft', brushUp: 'BracketRight', zoomIn: 'Equal', zoomOut: 'Minus', fit: 'Digit0', zoom100: 'Digit1',
     framePrev: 'Comma', frameNext: 'Period', side: 'Tab' };
   const RESERVED = ['Escape', 'Enter', 'Space', 'Delete', 'Backspace', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'MetaLeft', 'MetaRight'];
@@ -215,6 +267,7 @@
   }
 
   function onKeyDown(e) {
+    if (e.defaultPrevented) return; // клавишу уже обработало само поле
     const tag = e.target.tagName;
     if (NPR.dialogOpen()) return;
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(tag) && !(e.target.type === 'range' || e.target.type === 'checkbox')) {
@@ -236,6 +289,7 @@
       else if (c === 'KeyO') NPR.actions.open();
       else if (c === 'KeyI' && e.shiftKey) E.invert();
       else if (c === 'KeyE') NPR.actions.exportPNG();
+      else if (c === 'Enter') E.commitFloat(); // Ctrl+Enter — применить (текст, градиент, свет)
       else used = false; // Ctrl+V обрабатывается событием paste
     } else if (e.altKey && c !== 'AltLeft' && c !== 'AltRight') used = false;
     else if (c === 'KeyG' && e.shiftKey) NPR.toggle('hideGrids');
@@ -269,9 +323,10 @@
     const item = [...(e.clipboardData ? e.clipboardData.items : [])].find((i) => i.type.startsWith('image/'));
     if (item && !(E.sysOurs && E.clipboard)) {
       try {
-        const img = await NPR.util.decodeImage(item.getAsFile());
-        if (img.w > NPR.doc.width || img.h > NPR.doc.height) NPR.toast('Картинка больше холста: часть окажется за краем');
-        E.paste({ w: img.w, h: img.h, data: img.data });
+        // картинка из браузера или скриншот — сразу новым слоем
+        const file = item.getAsFile(), img = await NPR.util.decodeImage(file);
+        const nm = file && file.name && !/^image\.\w+$/i.test(file.name) ? file.name.replace(/\.[^.]+$/, '') : 'Вставка';
+        await NPR.io.placeImage(img, nm);
       } catch (err) { NPR.toast('Не удалось вставить картинку из буфера', true); }
     } else E.paste();
   }
@@ -289,13 +344,25 @@
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
     document.addEventListener('paste', onPaste);
+    const tb = document.getElementById('tcDraw');
+    tb.addEventListener('pointerdown', tcStart);
+    tb.addEventListener('pointerup', tcEnd);
+    tb.addEventListener('pointercancel', tcEnd);
+    tb.addEventListener('contextmenu', (e) => e.preventDefault());
+    I.syncTouchCursor();
     window.addEventListener('blur', () => { I.space = false; E.sysOurs = false; setCursor(); });
     // перетаскивание файла в окно
-    document.addEventListener('dragover', (e) => e.preventDefault());
+    // перетаскивание файла в окно: браузер не открывает его сам, а мы спрашиваем — проект или слой
+    const hint = document.getElementById('dropHint'), hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    let depth = 0;
+    document.addEventListener('dragenter', (e) => { if (hasFiles(e)) { depth++; hint.hidden = false; } });
+    document.addEventListener('dragleave', (e) => { if (hasFiles(e) && --depth <= 0) { depth = 0; hint.hidden = true; } });
+    document.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
     document.addEventListener('drop', (e) => {
+      depth = 0; hint.hidden = true;
+      if (!hasFiles(e)) return;
       e.preventDefault();
-      const f = e.dataTransfer.files[0];
-      if (f) NPR.io.openFile(f);
+      if (e.dataTransfer.files.length) NPR.io.dropFiles(e.dataTransfer.files);
     });
     setCursor();
   };

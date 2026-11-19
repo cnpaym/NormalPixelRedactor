@@ -61,6 +61,8 @@
     ['rect', 'Прямоугольник', 'U', 'M2.5 4h11v8h-11z'],
     ['ellipse', 'Эллипс', 'O', 'M8 3.5c3.2 0 5.5 2 5.5 4.5s-2.3 4.5-5.5 4.5S2.5 10.5 2.5 8 4.8 3.5 8 3.5z'],
     ['select', 'Прямоугольное выделение', 'M', 'M3 3h2 M7 3h2 M11 3h2v2 M13 7v2 M13 11v2h-2 M9 13H7 M5 13H3v-2 M3 9V7 M3 5V3'],
+    ['outline', 'Обводка', 'K', 'M3 3h10v10H3z M5.5 5.5h5v5h-5z'],
+    ['text', 'Текст', 'Y', 'M3 3.5h10 M8 3.5v9.5 M6 13h4'],
     ['selectEllipse', 'Выделение эллипсом', '', 'M8 3c3.2 0 5.5 2 5.5 5s-2.3 5-5.5 5-5.5-2-5.5-5S4.8 3 8 3z'],
     ['lasso', 'Лассо', 'Q', 'M8 2.5c3.3 0 6 1.7 6 3.9s-2.7 3.9-6 3.9-6-1.7-6-3.9 2.7-3.9 6-3.9z M5.5 10c-1.2 1.5-.5 3 1 4'],
     ['wand', 'Волшебная палочка', 'W', 'M2.5 13.5L9.5 6.5 M11.5 1.5v2 M11.5 7.5v2 M7.5 5.5h2 M13.5 5.5h2'],
@@ -69,15 +71,23 @@
     ['move', 'Перемещение', 'V', 'M8 2v12 M2 8h12 M6 4l2-2 2 2 M6 12l2 2 2-2 M4 6L2 8l2 2 M12 6l2 2-2 2'],
     ['hand', 'Рука (пан)', 'H', 'M5 9V4.5a1 1 0 0 1 2 0V8 M7 7.5V3.5a1 1 0 0 1 2 0v4 M9 7.5v-3a1 1 0 0 1 2 0V9 M11 8.5v-2a1 1 0 0 1 2 0V10c0 3-2 4.5-4.5 4.5-2 0-3.2-1-4-2.5L3 9.5a1 1 0 0 1 2-.5'],
     ['slice', 'Roblox: 9-slice', '', 'M2.5 2.5h11v11h-11z M6 1v14 M10 1v14 M1 6h14 M1 10h14'],
+    ['particles', 'Частицы', 'P', 'M8 14c-2.5 0-4-1.7-4-3.8 0-2.6 2.2-3.6 2.6-6.7 1.6 1.1 2.2 2.6 2 3.8 1-.6 1.6-1.6 1.7-2.6 1.3 1.3 1.7 2.9 1.7 4.4 0 2.6-1.6 4.9-4 4.9z M2.5 3.5h.01 M13 2.5h.01 M12.5 6.5h.01'],
+    ['smear', 'Дуга удара', 'A', 'M3 13C3 7 7 3 13 3 M5 13c0-4.4 3.6-8 8-8 M3 13l2 0'],
+    ['cloth', 'Ткань: плащ, флаг, волосы', 'C', 'M4 2.5h8 M4 2.5c-.5 4 .5 8-1 11 2-.8 3.5.2 5 0s3 .8 5 0c-1.5-3-.5-7-1-11 M7 6c0 2 .5 4 0 6 M10 6c0 2-.5 4 0 6'],
     ['refs', 'Референсы: двигать и менять размер', 'R', 'M2.5 3.5h11v9h-11z M2.5 10.5L6 7l3 3 2-2 2.5 2.5 M10.5 6h.01'],
   ];
   NPR.setTool = function (name) {
     if (NPR.input.busy) return;
-    E.commitSessions(name === 'gradient' ? NPR.gradient : name === 'light' ? NPR.fx : null);
-    if (!['move', 'select', 'selectEllipse', 'lasso', 'wand', 'gradient', 'light', 'refs', 'slice'].includes(name)) E.commitFloat();
+    E.commitSessions(name === 'gradient' ? NPR.gradient : name === 'light' ? NPR.fx : name === 'text' ? NPR.text : null);
+    if (name !== 'smear' && NPR.anim.smear.arc) NPR.anim.smear.commit();
+    if (!['move', 'select', 'selectEllipse', 'lasso', 'wand', 'gradient', 'light', 'refs', 'slice', 'text', 'particles', 'smear', 'cloth'].includes(name)) E.commitFloat();
     NPR.fx.show(name === 'light');
     NPR.roblox.show(name === 'slice');
-    document.body.classList.toggle('fx-on', name === 'light' || name === 'slice');
+    NPR.text.show(name === 'text');
+    NPR.particles.show(name === 'particles');
+    NPR.anim.show(name === 'smear');
+    NPR.cloth.show(name === 'cloth');
+    document.body.classList.toggle('fx-on', ['light', 'slice', 'text', 'particles', 'smear', 'cloth'].includes(name));
     S.tool = name;
     for (const o of document.querySelectorAll('#options [data-tools]')) o.hidden = !o.dataset.tools.split(' ').includes(name);
     for (const b of $('toolbar').children) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
@@ -99,6 +109,7 @@
     symX: () => { S.symX = !S.symX; },
     symY: () => { S.symY = !S.symY; },
     penOnly: () => { S.penOnly = !S.penOnly; },
+    touchCursor: () => { S.touchCursor = !S.touchCursor; NPR.input.syncTouchCursor(); },
     shade: () => { S.shade = !S.shade; },
     side: () => { document.body.classList.toggle('no-side'); },
   };
@@ -115,6 +126,9 @@
     $('optContig').checked = S.contiguous;
     $('optAll').checked = S.sampleAll;
     $('optShade').checked = S.shade;
+    $('optOutIn').value = S.outlineInside ? 'in' : 'out';
+    $('optOutDiag').checked = S.outlineDiag;
+    $('optOutW').value = S.outlineWidth;
     $('optDither').value = S.dither;
     $('optTol').value = S.tolerance;
     $('optSymX').setAttribute('aria-pressed', String(S.symX));
@@ -128,8 +142,8 @@
 
   /* ---------- настройки ---------- */
   function saveSettings() {
-    const keep = ['brushSize', 'brushShape', 'pixelPerfect', 'filled', 'contiguous', 'tolerance', 'sampleAll', 'penOnly', 'grid', 'customGrid', 'gridW', 'gridH',
-      'hideGrids', 'tile', 'dither', 'shade', 'showGrads', 'gradType', 'gradAngle', 'gradSteps', 'gradDither', 'gradBlend'];
+    const keep = ['brushSize', 'brushShape', 'pixelPerfect', 'filled', 'contiguous', 'tolerance', 'sampleAll', 'penOnly', 'touchCursor', 'grid', 'customGrid', 'gridW', 'gridH',
+      'hideGrids', 'tile', 'dither', 'shade', 'outlineInside', 'outlineDiag', 'outlineWidth', 'showGrads', 'gradType', 'gradAngle', 'gradSteps', 'gradDither', 'gradBlend'];
     const o = { undoMB: Math.round(NPR.history.limit / 1048576) };
     for (const k of keep) o[k] = S[k];
     try { localStorage.setItem(SETTINGS, JSON.stringify(o)); } catch (e) { /* хранилище недоступно */ }
@@ -157,7 +171,7 @@
     const v = await NPR.dialog({
       title: 'Новый холст', okLabel: 'Создать', check: sizeCheck,
       fields: [
-        { id: 'name', label: 'Название', value: 'Без названия' },
+        { id: 'name', label: 'Название', value: NPR.t('Без названия') },
         { id: 'width', label: 'Ширина, px', type: 'number', value: NPR.doc ? NPR.doc.width : 32, min: 1, max: O.MAX },
         { id: 'height', label: 'Высота, px', type: 'number', value: NPR.doc ? NPR.doc.height : 32, min: 1, max: O.MAX },
         { type: 'note', label: 'Текущий холст будет закрыт. Сохраните проект, если он ещё нужен.' },
@@ -165,7 +179,7 @@
     });
     if (!v) return;
     const doc = new NPR.Doc(v.width, v.height);
-    doc.name = v.name.trim() || 'Без названия';
+    doc.name = v.name.trim() || NPR.t('Без названия');
     await NPR.io.saveNow();
     NPR.setDoc(doc);
   };
@@ -294,21 +308,6 @@
     NPR.history.trim();
     saveSettings(); NPR.status.update();
   };
-  A.outline = async function () {
-    const v = await NPR.dialog({
-      title: 'Обводка', okLabel: 'Обвести',
-      fields: [
-        { id: 'color', label: 'Цвет (hex)', value: U.toHex(S.primary, true) },
-        { id: 'where', label: 'Где', type: 'select', value: 'out', options: [['out', 'снаружи объекта'], ['in', 'по краю внутри объекта']] },
-        { id: 'diag', label: 'Закрывать и углы (по диагонали)', type: 'checkbox', value: false },
-        { type: 'note', label: 'Обводится всё закрашенное на активном слое. Если есть выделение — только внутри него.' },
-      ],
-      check: (x) => (U.parseHex(x.color) === null ? { error: 'Цвет записывается как #rrggbb или #rrggbbaa' } : null),
-    });
-    if (!v) return;
-    const n = O.outline(U.parseHex(v.color), v.where === 'in', v.diag);
-    NPR.toast(n ? `Обведено пикселей: ${n}` : 'Обводить нечего');
-  };
   /* Настройка клавиш: щёлкнуть по действию и нажать новую клавишу. */
   A.hotkeys = function () {
     const I = NPR.input, box = el('ul', { class: 'keys' });
@@ -339,7 +338,7 @@
   A.guide = function () {
     const sec = (title, lines) => [{ type: 'node', node: el('h3', { class: 'guide' }, title) }, ...lines.map((t) => ({ type: 'note', label: t }))];
     NPR.dialog({
-      title: 'Свои кисти и текстуры', okLabel: 'Понятно', noCancel: true,
+      title: 'Свои кисти, текстуры, шрифты и стили текста', okLabel: 'Понятно', noCancel: true,
       fields: [
         ...sec('Кисть', [
           '1. Нарисуйте форму кисти на холсте: точку, крест, листик, что угодно. Размер — до 64×64.',
@@ -356,6 +355,53 @@
           '5. «Случайная» придумывает новую бесшовную текстуру при каждом нажатии; понравилась — «Оставить».',
           'Совет: рисуйте текстуру оттенками серого на холсте 16×16 или 32×32 в режиме «Вид → Копии вокруг (3×3)» — так сразу видно, как она стыкуется.',
         ]),
+        ...sec('Шрифт', [
+          'Встроенные шрифты (Инскрипция, Готика, Рок, Простой, Пиксельный, Резьба) знают латиницу и кириллицу. Во всех есть настоящие строчные; галочка «капитель» возвращает прежний вид. Есть жирный, курсив и кернинг.',
+          '«Резьба» лучше всего смотрится со стилем «Резной камень». Длинные перекладины у I, T, Г и t уходят на соседние буквы.',
+          'Свой шрифт: инструмент «Текст» (Y) → «+ свой шрифт…» → файл .ttf, .otf, .woff или .woff2. Он сохранится в браузере.',
+          'Бесплатные шрифты под фэнтези есть на fonts.google.com: Ruslan Display — древнерусский полуустав с кириллицей; Cinzel и Cinzel Decorative — в духе Trajan, но только латиница. Скачайте и добавьте файл.',
+          'Галочка «мягкие края» оставляет сглаживание; без неё края чёткие, по пикселям.',
+        ]),
+        ...sec('Стиль текста', [
+          'Стиль — это шаги, которые по очереди применяются к буквам: цвет, градиент, свет и текстура, обводка, свечение, тень.',
+          'Собрать вручную: «+ шаг». Шаг «Градиент» и «Свет и текстура» берут текущие настройки этих инструментов (кнопка ↻ обновляет их).',
+          'Записать: нажмите «● Записывать шаги», поставьте текст и поработайте с ним заливкой, градиентом, светом и обводкой — каждое применение станет шагом. Потом «■ Остановить» и «Сохранить…».',
+          'Текстовый слой помнит текст и стиль: выберите его и нажмите «Изменить текст слоя».',
+        ]),
+        ...sec('Частицы', [
+          'Инструмент «Частицы» (P). Эффект — несколько излучателей (вкладки), у каждого цепочка узлов сверху вниз.',
+          'Щелчок по холсту ставит выбранный излучатель. Предпросмотр крутится прямо на холсте.',
+          'Цвет по жизни: соберите градиент в редакторе градиента и нажмите «↻ из текущего градиента». Прозрачный конец — частица тает.',
+          '«Свечение (сложение)» — для огня и магии, «обычное» — для дыма и капель. «Цикл» делает анимацию без шва.',
+          '«При смерти рождать» — частица, умирая, порождает частицы другого излучателя: ракета → взрыв, капля → брызги, пламя → дым. Такой излучатель ставьте в режим «только при смерти другого».',
+          'Несколько эффектов в одном слое: «+ Ещё эффект» добавляет пресет отдельной группой. Тяните источник — едет вся группа (Alt — только один излучатель), Shift+щелчок — копия группы в это место.',
+          'Пол — зелёная линия, аттрактор — фиолетовая точка. Обе тянутся мышью. Частица отскакивает от пола или умирает об него, а аттрактор затягивает её по спирали.',
+          'Форма «★ свой спрайт»: рисунок 3×3–12×12 (ЛКМ — основным цветом, ПКМ — стереть) или «из выделения». Может вращаться или переворачиваться, как монетка.',
+          '«Светится на окружение»: такие частицы на каждом кадре подсвечивают выбранный слой — получится отдельный слой с мерцающим отблеском.',
+          '«Создать спрайтшит» — новый слой с кадрами. Позже его можно выбрать и нажать «Изменить эффект слоя».',
+        ]),
+        ...sec('Свет', [
+          'До 4 источников: у каждого свой цвет, угол, высота и сила. Белый свет только осветляет, цветной ещё и окрашивает освещённую сторону.',
+          'Протяжка по холсту направляет выбранный источник (он подсвечен рамкой).',
+          'Кисть «Наклон» делает участок ровной гранью, повёрнутой в заданную сторону, — он освещается целиком одинаково, как лист бумаги.',
+          '«Глухая тень» — свет туда не попадает; «Без света» — пиксели не меняются. «Кисть → на выделение» заливает выбранной кистью всё выделенное.',
+          'Анимация света: «Точка 1» и «Точка 2» — щёлкнуть по холсту, задать число кадров и «Создать спрайтшит». Двигается выбранный источник.',
+        ]),
+        ...sec('Анимация', [
+          'Меню «Анимация» (и кнопка «Анимация ▾» в полосе кадров) — автоматизация рутины. Всё отменяется одним Ctrl+Z.',
+          'Тень на полу, контур на всех кадрах и шлейф ложатся отдельными слоями «… — тень», «… — контур», «… — шлейф». Поправили рисунок — запустите снова, слой пересоздастся.',
+          'Твининг: объект на кадре «от» плавно едет к кадру «до» со сдвигом, поворотом и масштабом. Если объект уже стоит на кадре «до» — «найти сдвиг сам».',
+          'Дыхание (Auto-Idle) делает из одного кадра анимацию покоя, цветовое циклирование — переливы цветов из палитры, эффект удара — вспышку и тряску.',
+          'Очистка пикселей (J) убирает лишние угловые пиксели в линиях толщиной 1 px.',
+          'Дуга удара (A): тяните от начала взмаха к концу, белая ручка выгибает дугу; Enter кладёт 2–4 кадра шлейфа в слой «Дуга удара».',
+          '«Синхронно» в полосе кадров: все слои-спрайтшиты листаются вместе. «Следующий» показывает следующий кадр зеленоватым.',
+        ]),
+        ...sec('Ткань', [
+          'Инструмент «Ткань» (C): выделите плащ, флаг, волосы или юбку — или нажмите «Нарисовать заготовку».',
+          'Красные точки — гвозди: они не двигаются (плечи, древко, макушка, пояс). Щелчок по узлу сетки ставит или убирает гвоздь.',
+          'Ветер, трепет, тяжесть и жёсткость задают характер: шёлк лёгкий, кожа и кольчуга тяжёлые. Для волос уменьшите «сцепление прядей», для юбки добавьте «качание».',
+          '«Тени складок» делают гребни волн светлее, а впадины темнее. «Запечь в кадры» — бесшовный спрайтшит на 4–16 кадров.',
+        ]),
       ],
     });
   };
@@ -365,7 +411,8 @@
       fields: [
         'B карандаш · E ластик · G заливка · I пипетка · L линия',
         'U прямоугольник · O эллипс · M выделение · Q лассо · W палочка',
-        'D градиент · T свет и текстура · R референсы · V перемещение · H рука',
+        'D градиент · T свет и текстура · Y текст · K обводка · P частицы · R референсы · V перемещение · H рука',
+        'A дуга удара · C ткань · J очистка пикселей',
         'Спрайтшит: запятая и точка — предыдущий и следующий кадр',
         'С выделением: Shift — добавить, Alt — вычесть',
         'Градиент: протяжка задаёт направление, Shift — шаг 15°, Enter — применить',
@@ -384,6 +431,7 @@
   };
 
   const MENUS = {
+    anim: () => NPR.anim.menu(),
     file: () => [
       { label: 'Новый холст…', action: A.newDoc },
       { label: 'Мои проекты…', action: A.projects },
@@ -395,6 +443,7 @@
       { label: 'Сохранить как…', key: 'Ctrl+Shift+S', action: () => NPR.io.saveProject(true) },
       { label: 'Экспорт PNG…', key: 'Ctrl+E', action: A.exportPNG },
       { label: 'Экспорт спрайтшита…', action: NPR.frames.exportDialog },
+      { label: 'Экспорт GIF…', action: () => NPR.frames.gifDialog() },
       { label: 'Переименовать проект…', action: A.rename },
       '-',
       { label: 'Настройки…', action: A.settings },
@@ -418,7 +467,7 @@
       { label: 'Масштабировать изображение…', action: A.scale },
       { label: 'Обрезать по выделению', disabled: !NPR.doc.sel, action: O.cropToSelection },
       { label: 'Заменить цвет…', action: A.replaceColor },
-      { label: 'Обводка…', action: A.outline },
+      { label: 'Выровнять по центру холста', action: () => E.center('both') },
       '-',
       { label: 'Отразить по горизонтали', action: () => E.flip(true) },
       { label: 'Отразить по вертикали', action: () => E.flip(false) },
@@ -445,10 +494,11 @@
       { label: 'Панель градиентов', checked: S.showGrads, action: () => NPR.toggle('grads') },
       '-',
       { label: 'Рисовать только пером (пальцы двигают холст)', checked: S.penOnly, action: () => NPR.toggle('penOnly') },
+      { label: 'Курсор со смещением для пальца (как в Pixel Studio)', checked: S.touchCursor, action: () => NPR.toggle('touchCursor') },
       { label: 'Правая панель', key: 'Tab', checked: !document.body.classList.contains('no-side'), action: () => NPR.toggle('side') },
       { label: 'Настроить клавиши…', action: A.hotkeys },
       { label: 'Все сочетания клавиш', action: A.keys },
-      { label: 'Как сделать свои кисти и текстуры', action: A.guide },
+      { label: 'Как сделать свои кисти, текстуры, шрифты и стили', action: A.guide },
       { label: 'Блэкджек', action: NPR.blackjack },
     ],
   };
@@ -484,6 +534,8 @@
       b.addEventListener('click', () => NPR.setTool(name));
       tb.append(b);
     }
+    $('langCode').textContent = NPR.lang.toUpperCase();
+    $('btnLang').addEventListener('click', () => NPR.setLang(NPR.lang === 'en' ? 'ru' : 'en'));
     for (const b of document.querySelectorAll('[data-menu]'))
       b.addEventListener('click', () => NPR.popup(b, MENUS[b.dataset.menu]()));
 
@@ -491,6 +543,10 @@
     $('optShape').addEventListener('change', (e) => { S.brushShape = e.target.value; NPR.brushes.render(); saveSettings(); });
     $('optBrushMenu').addEventListener('click', (e) => NPR.brushes.menu(e.currentTarget));
     $('optShade').addEventListener('change', (e) => { S.shade = e.target.checked; saveSettings(); });
+    $('optOutIn').addEventListener('change', (e) => { S.outlineInside = e.target.value === 'in'; saveSettings(); });
+    $('optOutDiag').addEventListener('change', (e) => { S.outlineDiag = e.target.checked; saveSettings(); });
+    $('optOutW').addEventListener('input', (e) => { S.outlineWidth = U.clamp(Math.round(+e.target.value) || 1, 1, 8); saveSettings(); });
+    for (const b of document.querySelectorAll('[data-center]')) b.addEventListener('click', () => E.center(b.dataset.center));
     $('optDither').addEventListener('change', (e) => { S.dither = +e.target.value; saveSettings(); });
     const keyTitles = () => { for (const b of tb.children) { const k = NPR.input.keyOf('tool:' + b.dataset.tool); b.title = k ? `${b.dataset.label} (${k})` : b.dataset.label; } };
     NPR.on('keys', keyTitles);
@@ -531,6 +587,10 @@
     NPR.roblox.init();
     NPR.frames.init();
     NPR.fx.init();
+    NPR.text.init();
+    NPR.particles.init();
+    NPR.anim.init();
+    NPR.cloth.init();
     NPR.layersUI.init();
     V.init($('cMain'), $('cOver'), $('cPreview'));
     NPR.input.init($('cOver'));

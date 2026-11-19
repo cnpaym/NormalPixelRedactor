@@ -9,7 +9,7 @@
   class Layer {
     constructor(w, h, name, data) {
       this.id = nextId++;
-      this.name = name || 'Слой ' + this.id;
+      this.name = name || NPR.tf('Слой {0}', this.id);
       this.visible = true;
       this.opacity = 1;
       this.locked = false;
@@ -18,20 +18,22 @@
       this.frame = 0;
       this.depth = null; // карта глубины для освещения (Uint8Array, см. fx.js)
       this.depths = null; // у спрайтшита — своя карта на каждый кадр
+      this.particles = null; // настройки эффекта частиц, если слой создан инструментом «Частицы»
+      this.text = null; // настройки текста, если слой создан инструментом «Текст»
       this.data = data || new Uint32Array(w * h);
     }
   }
 
   class Doc {
     constructor(w, h) {
-      this.name = 'Без названия';
+      this.name = NPR.t('Без названия');
       this.layers = []; // [0] — нижний слой
       this.activeId = 0;
       this.sel = null; // {x,y,w,h}
       this.float = null; // «плавающие» пиксели выделения
       this.refs = []; // референсы (см. refs.js)
       this._alloc(w, h);
-      this.addLayerRaw(new Layer(w, h, 'Слой 1'));
+      this.addLayerRaw(new Layer(w, h, NPR.tf('Слой {0}', 1)));
     }
 
     _alloc(w, h) {
@@ -59,8 +61,8 @@
     newLayer(name, data) {
       if (!name) { // «Слой N» с первым свободным номером
         let n = this.layers.length + 1;
-        while (this.layers.some((l) => l.name === 'Слой ' + n)) n++;
-        name = 'Слой ' + n;
+        while (this.layers.some((l) => l.name === NPR.tf('Слой {0}', n))) n++;
+        name = NPR.tf('Слой {0}', n);
       }
       return new Layer(this.width, this.height, name, data);
     }
@@ -116,7 +118,7 @@
       return {
         width: this.width, height: this.height, activeId: this.activeId,
         sel: this.sel && { ...this.sel },
-        layers: this.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, alphaLock: l.alphaLock, data: l.data, frames: l.frames && l.frames.slice(), frame: l.frame, depth: l.depth, depths: l.depths && l.depths.slice() })),
+        layers: this.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked, alphaLock: l.alphaLock, data: l.data, frames: l.frames && l.frames.slice(), frame: l.frame, depth: l.depth, depths: l.depths && l.depths.slice(), text: l.text || null, particles: l.particles || null })),
       };
     }
     restore(s) {

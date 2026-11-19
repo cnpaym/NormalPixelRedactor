@@ -199,6 +199,7 @@ window.NPR = window.NPR || {};
     brushShape: 'square', // square | circle | b:<название своей кисти>
     dither: 0, // узор кисти: 0 — сплошная, 1 — 25%, 2 — 50%, 3 — 75%
     shade: false, // карандаш не красит, а сдвигает тон: ЛКМ светлее, ПКМ темнее
+    outlineInside: false, outlineDiag: false, outlineWidth: 1,
     pixelPerfect: false,
     filled: false,
     contiguous: true,
@@ -219,6 +220,7 @@ window.NPR = window.NPR || {};
     tolerance: 0, // допуск заливки и палочки, 0–255
     sampleAll: false, // искать область по всем видимым слоям
     penOnly: false, // пальцы только двигают холст
+    touchCursor: false, // палец водит курсор, рисует кнопка «✎»
   };
 
   U.fmtBytes = (n) => (n < 1048576 ? (n / 1024).toFixed(0) + ' КБ' : (n / 1048576).toFixed(1) + ' МБ');

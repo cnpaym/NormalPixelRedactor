@@ -94,6 +94,7 @@
     return (checker = ctx.createPattern(c, 'repeat'));
   }
 
+  V.checkerPattern = (ctx) => checkerPattern(ctx);
   function drawMain(doc) {
     const ctx = V.mctx, z = V.zoom, W = doc.width, H = doc.height;
     ctx.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
@@ -217,6 +218,10 @@
 
     NPR.fx.drawOverlay(ctx);
     NPR.roblox.drawOverlay(ctx);
+    NPR.text.drawOverlay(ctx);
+    NPR.particles.drawOverlay(ctx);
+    NPR.anim.smear.drawOverlay(ctx);
+    NPR.cloth.drawOverlay(ctx);
     NPR.gradient.drawOverlay(ctx);
     NPR.refs.drawOverlay(ctx);
 
