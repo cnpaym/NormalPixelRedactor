@@ -16,9 +16,11 @@
       <button type="button" data-menu="file">Файл</button>
       <button type="button" data-menu="edit">Правка</button>
       <button type="button" data-menu="image">Изображение</button>
+      <button type="button" data-menu="anim">Анимация</button>
       <button type="button" data-menu="view">Вид</button>
     </nav>
     <button type="button" id="docTitle" title="Переименовать проект"></button>
+    <button type="button" id="btnLang" class="lang" title="Язык интерфейса: English / Русский" aria-label="Язык интерфейса"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M2 8h12 M8 2c-2 2-2 10 0 12 M8 2c2 2 2 10 0 12"/></svg><span id="langCode">EN</span></button>
     <button type="button" id="btnGrid" class="ico" aria-pressed="true" title="Показать или скрыть сетку (Shift+G)" aria-label="Сетка">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 2.5h11v11h-11z M6.2 2.5v11 M9.8 2.5v11 M2.5 6.2h11 M2.5 9.8h11"/></svg>
     </button>
@@ -75,10 +77,23 @@
       <button type="button" id="optSymY" aria-pressed="false" title="Зеркало сверху вниз">↕</button>
     </span>
     <span class="hint" data-tools="light">Тяните по холсту, чтобы задать, откуда свет. Кисти глубины рисуют рельеф. Enter — применить, Esc — отменить.</span>
+    <span class="group" data-tools="outline">
+      <label>Где <select id="optOutIn"><option value="out">снаружи</option><option value="in">по краю внутри</option></select></label>
+      <label title="Толщина обводки в пикселях">Толщина <input id="optOutW" type="number" min="1" max="8" value="1" inputmode="numeric"></label>
+      <label class="chk" title="Закрывать и углы (соседи по диагонали)"><input id="optOutDiag" type="checkbox"> углы</label>
+    </span>
+    <span class="hint" data-tools="outline">Щелчок по объекту — обвести его, Shift+щелчок — всё на слое. Правая кнопка — вторичным цветом.</span>
+    <span class="group" data-tools="select selectEllipse lasso wand move" title="Поставить выделенное (без выделения — весь слой) по центру холста">По центру
+      <button type="button" data-center="h" title="По горизонтали">↔</button>
+      <button type="button" data-center="v" title="По вертикали">↕</button>
+      <button type="button" data-center="both" title="По горизонтали и вертикали">✛</button>
+    </span>
     <span class="hint" data-tools="select selectEllipse lasso wand">Shift — добавить к выделению, Alt — вычесть. Тянуть внутри выделения — двигать пиксели.</span>
     <span class="hint" data-tools="move">Двигает выделенное или весь слой. Стрелки — на 1 px.</span>
     <span class="hint" data-tools="eyedropper">Берёт цвет с рисунка и с референсов. Правая кнопка — во вторичный цвет.</span>
     <span class="hint" data-tools="hand">Двигает холст. То же самое — пробел или средняя кнопка мыши.</span>
+    <span class="hint" data-tools="text">Щёлкните по холсту, чтобы поставить текст, и тяните его мышью. Ctrl+Enter или Enter вне поля — применить, Esc — отменить.</span>
+    <span class="hint" data-tools="particles">Щёлкните или тяните по холсту — туда встанет выбранный излучатель. Зелёную линию пола и фиолетовую точку аттрактора можно тянуть.</span>
     <span class="hint" data-tools="slice">Тяните зелёные направляющие. Слева — предпросмотр растяжения и готовый SliceCenter.</span>
     <span class="hint" data-tools="refs">Тяните референс, чтобы подвинуть; за жёлтый уголок — изменить размер. Delete — удалить.</span>
   </div>
@@ -107,8 +122,11 @@
     <aside id="fxPanel" aria-label="Свет и текстура" hidden>
       <div class="row">
         <label class="chk"><input id="fxLight" type="checkbox"> Свет</label>
-        <label title="С какой стороны светит: 0° — справа, 90° — снизу, 225° — сверху слева">с угла <input id="fxAngle" type="number" min="0" max="359" inputmode="numeric">°</label>
-        <label>сила <input id="fxStrength" type="range" min="0" max="100"></label>
+        <button type="button" id="fxLightAdd" title="Добавить источник света (до 4)">+ источник</button>
+      </div>
+      <div id="fxLights"></div>
+      <div class="row">
+        <label class="chk" title="Если есть выделение: свет работает внутри него, а остальной объект уходит в глухую тень"><input id="fxOutside" type="checkbox"> Вне выделения — глухая тень</label>
       </div>
       <div class="row">
         <label class="chk" title="Края фигуры считаются скруглёнными: получается объём"><input id="fxBevel" type="checkbox"> Объём от края</label>
@@ -137,13 +155,154 @@
       <h3>Глубина: что делает протяжка по холсту</h3>
       <div id="fxBrushes"></div>
       <div class="row">
+        <label title="Кисть «Наклон»: куда повёрнута грань (0° — вправо, 90° — вниз, 180° — влево, 270° — вверх)">наклон в сторону <input id="fxFacetDir" type="number" min="0" max="359" inputmode="numeric">°</label>
+        <label title="Насколько грань отклонена от плоскости рисунка">на <input id="fxFacetTilt" type="number" min="0" max="79" inputmode="numeric">°</label>
+      </div>
+      <div class="row">
+        <button type="button" id="fxFillSel" title="Залить выбранной кистью всё закрашенное внутри выделения">Кисть → на выделение</button>
         <label title="На сколько пикселей светящиеся пиксели подсвечивают соседей">свечение <input id="fxGlow" type="number" min="0" max="6" inputmode="numeric"> px</label>
         <label class="chk"><input id="fxShowDepth" type="checkbox" checked> показывать карту</label>
         <button type="button" id="fxDepthClear">Очистить карту</button>
       </div>
+      <h3>Анимация света → спрайтшит</h3>
+      <div class="row">
+        <button type="button" id="fxAnimP1" aria-pressed="false" title="Щёлкните, потом укажите на холсте, откуда начинается свет">Точка 1</button>
+        <button type="button" id="fxAnimP2" aria-pressed="false" title="Щёлкните, потом укажите на холсте, где свет заканчивается">Точка 2</button>
+        <label>кадров <input id="fxAnimFrames" type="number" min="2" max="64" inputmode="numeric"></label>
+      </div>
+      <div class="row">
+        <select id="fxAnimMode" aria-label="Путь света"><option value="line">от 1 к 2</option><option value="circle">по кругу через 1</option></select>
+        <label class="chk" title="Свет идёт к точке 2 и возвращается — анимация зациклена"><input id="fxAnimPing" type="checkbox"> туда и обратно</label>
+      </div>
+      <div class="row">
+        <label class="chk" title="Чем ближе точка к объекту, тем выше свет над ним"><input id="fxAnimDist" type="checkbox"> высота по расстоянию</label>
+      </div>
+      <div class="row">
+        <button type="button" id="fxAnimGo" title="Сделать новый слой-спрайтшит: копия слоя с движущимся светом. Анимируется выбранный источник">Создать спрайтшит</button>
+      </div>
       <div class="row end">
         <button type="button" id="fxCancel">Отменить</button>
         <button type="button" id="fxApply" class="primary">Применить</button>
+      </div>
+    </aside>
+
+    <aside id="textPanel" aria-label="Текст" hidden>
+      <textarea id="txtText" rows="3" spellcheck="false" aria-label="Текст"></textarea>
+      <div class="row">
+        <label class="grow">Шрифт <select id="txtFont"></select></label>
+      </div>
+      <div class="row">
+        <button type="button" id="txtFontAdd" title="Добавить свой шрифт: .ttf, .otf, .woff, .woff2. Он сохранится в браузере">+ свой шрифт…</button>
+        <button type="button" id="txtFontDel" title="Убрать выбранный свой шрифт">Убрать</button>
+      </div>
+      <div class="row">
+        <label><span id="txtSizeLabel">Высота букв</span> <input id="txtSize" type="number" min="4" max="256" inputmode="numeric"> px</label>
+      </div>
+      <div class="row">
+        <label class="chk txtB" title="Жирный"><input id="txtBold" type="checkbox"> <b>Ж</b> жирный</label>
+        <label class="chk txtI" title="Курсив (наклон)"><input id="txtItalic" type="checkbox"> <i>К</i> курсив</label>
+      </div>
+      <div class="row" id="txtSmoothRow">
+        <label class="chk" title="Оставить мягкие края букв. Без галочки края чёткие, по пикселям"><input id="txtSmooth" type="checkbox"> мягкие края</label>
+        <label class="chk" id="txtCapsRow" title="Строчные буквы — уменьшенными заглавными, как было раньше"><input id="txtCaps" type="checkbox"> капитель</label>
+      </div>
+      <div class="row">
+        <label title="Расстояние между буквами, px">Интервал <input id="txtSpacing" type="number" min="-8" max="32" inputmode="numeric"></label>
+        <label title="Расстояние между строками">Строки <input id="txtLine" type="number" min="50" max="300" step="10" inputmode="numeric">%</label>
+      </div>
+      <div class="row">
+        <label title="Кернинг: пары вроде AV, To, LT, Г. садятся плотнее. 0 — выключен">Кернинг <input id="txtKern" type="range" min="0" max="100" step="5"></label>
+        <span class="lbl" id="txtKernVal"></span>
+      </div>
+      <div class="row">
+        <span class="lbl">Выровнять</span>
+        <button type="button" data-align="left" title="По левому краю">⯇</button>
+        <button type="button" data-align="center" title="По центру">≡</button>
+        <button type="button" data-align="right" title="По правому краю">⯈</button>
+        <span class="lbl">На холсте</span>
+        <button type="button" data-tcenter="h" title="По центру холста по горизонтали">↔</button>
+        <button type="button" data-tcenter="v" title="По центру холста по вертикали">↕</button>
+        <button type="button" data-tcenter="both" title="В центр холста">✛</button>
+      </div>
+      <h3>Стиль</h3>
+      <div class="row">
+        <select id="txtStyle" aria-label="Стиль текста"></select>
+        <button type="button" id="txtStyleSave" title="Сохранить шаги как свой стиль">Сохранить…</button>
+        <button type="button" id="txtStyleDel">Удалить</button>
+      </div>
+      <ol id="txtSteps"></ol>
+      <div class="row">
+        <button type="button" id="txtStepAdd">+ шаг</button>
+        <button type="button" id="txtRec" aria-pressed="false" title="Записывать в стиль то, что делаете инструментами">● Записывать шаги</button>
+      </div>
+      <p id="txtRecHint" class="note" hidden>Идёт запись. Работайте с текстом заливкой, градиентом, светом и обводкой: каждое применение станет шагом. Новый текст будет оформляться так же.</p>
+      <div class="row">
+        <label class="chk" title="Текст ложится на отдельный слой, его можно потом изменить"><input id="txtNewLayer" type="checkbox"> на новом слое</label>
+      </div>
+      <div class="row end">
+        <button type="button" id="txtEdit" title="Открыть выбранный текстовый слой для правки">Изменить текст слоя</button>
+        <button type="button" id="txtCancel">Отменить</button>
+        <button type="button" id="txtApply" class="primary">Применить</button>
+      </div>
+    </aside>
+
+    <aside id="ptPanel" aria-label="Частицы" hidden>
+      <div class="row">
+        <button type="button" id="ptPresets" title="Готовые эффекты и свои сохранённые">Эффект: <b id="ptName"></b> ▾</button>
+        <button type="button" id="ptPlay" title="Пауза или воспроизведение предпросмотра">❚❚</button>
+        <span id="ptFrame" class="lbl"></span>
+      </div>
+      <div class="row">
+        <label title="Сколько кадров в спрайтшите">кадров <input id="ptFrames" type="number" min="2" max="64" inputmode="numeric"></label>
+        <label title="Скорость предпросмотра">к/с <input id="ptFps" type="number" min="1" max="60" inputmode="numeric"></label>
+        <label class="chk" title="Последний кадр плавно переходит в первый"><input id="ptLoop" type="checkbox"> цикл</label>
+      </div>
+      <div class="row">
+        <label title="Случайное зерно: другое число — другой рисунок частиц">зерно <input id="ptSeed" type="number" min="0" max="999999" inputmode="numeric"></label>
+        <button type="button" id="ptDice" title="Новое случайное зерно">🎲</button>
+      </div>
+      <div class="row">
+        <label title="Как рисовать полупрозрачные частицы">прозрачность
+          <select id="ptAlpha"><option value="dither">узором (пиксель-арт)</option><option value="hard">чёткая</option><option value="smooth">плавная</option></select>
+        </label>
+        <label class="chk" title="Цвета частиц подбираются из текущей палитры"><input id="ptPal" type="checkbox"> по палитре</label>
+      </div>
+      <div class="row ghdr">
+        <h3>Излучатели</h3>
+        <button type="button" id="ptAddFx" title="Добавить ещё один эффект в этот же слой: например, костёр + листопад + искры">+ Ещё эффект ▾</button>
+      </div>
+      <div class="row ptabs">
+        <div id="ptTabs"></div>
+        <button type="button" id="ptAdd" title="Добавить излучатель (копию выбранного)">+</button>
+        <button type="button" id="ptDel" title="Убрать выбранный излучатель">−</button>
+      </div>
+      <div id="ptNodes"></div>
+      <div class="row end">
+        <button type="button" id="ptEdit" title="Открыть эффект выбранного слоя частиц для правки">Изменить эффект слоя</button>
+        <button type="button" id="ptBake" class="primary">Создать спрайтшит</button>
+      </div>
+    </aside>
+
+    <aside id="smPanel" aria-label="Дуга удара" hidden>
+      <h3>Дуга удара</h3>
+      <p class="note">Тяните от начала взмаха к концу. Белая ручка выгибает дугу, голубая — начало, жёлтая — конец (у оружия).</p>
+      <div id="smOpts"></div>
+      <div class="row end">
+        <button type="button" id="smClear">Убрать</button>
+        <button type="button" id="smBake" class="primary" title="Положить кадры шлейфа в слой «Дуга удара» с текущего кадра (Enter)">Запечь в кадры</button>
+      </div>
+    </aside>
+
+    <aside id="clPanel" aria-label="Ткань" hidden>
+      <div class="row">
+        <h3>Ткань</h3>
+        <button type="button" id="clPlay" title="Пауза или воспроизведение">❚❚</button>
+        <span id="clInfo" class="lbl"></span>
+      </div>
+      <p class="note">Выделите плащ, флаг, волосы или юбку (без выделения — весь слой) или нарисуйте заготовку.</p>
+      <div id="clOpts"></div>
+      <div class="row end">
+        <button type="button" id="clBake" class="primary">Запечь в кадры</button>
       </div>
     </aside>
 
@@ -175,6 +334,8 @@
     <div id="stage">
       <canvas id="cMain"></canvas>
       <canvas id="cOver"></canvas>
+      <div id="tcCursor" hidden aria-hidden="true"></div>
+      <button type="button" id="tcDraw" hidden title="Держите — рисует там, где курсор. Короткое нажатие — один щелчок">✎</button>
 
       <div id="gradEditor" hidden>
         <div id="gradEditBar" title="Щёлкните, чтобы добавить точку"></div>
@@ -245,6 +406,7 @@
           <ul id="layerList"></ul>
           <div class="layerbtns">
             <button type="button" id="layerAdd" title="Новый слой">+</button>
+            <button type="button" id="layerImport" class="two" title="Новый слой из картинки (PNG, JPG, GIF, WebP). Ещё можно перетащить файл на холст или нажать Ctrl+V">+ Картинка</button>
             <button type="button" id="layerDup" title="Дублировать слой">Копия</button>
             <button type="button" id="layerUp" title="Поднять слой">↑</button>
             <button type="button" id="layerDown" title="Опустить слой">↓</button>
@@ -283,10 +445,14 @@
     <button type="button" id="frameRight" title="Сдвинуть кадр позже">→</button>
     <button type="button" id="frameDel" title="Удалить текущий кадр">Удалить</button>
     <label class="chk" title="Показывать предыдущий кадр полупрозрачным"><input id="frameOnion" type="checkbox" checked> прошлый кадр</label>
+    <label class="chk" title="Показывать следующий кадр зеленоватым"><input id="frameNext" type="checkbox"> следующий</label>
+    <label class="chk" title="Все слои-спрайтшиты листаются вместе: персонаж, тень, шлейф, частицы"><input id="frameSync" type="checkbox" checked> синхронно</label>
+    <button type="button" id="frameMenu" title="Операции с кадрами и автоматизация анимации">Анимация ▾</button>
     <label class="chk" title="Подсветить пиксели, которые отличаются от предыдущего кадра"><input id="frameDiff" type="checkbox"> отличия</label>
     <button type="button" id="framePlay">▶ Проиграть</button>
     <label><input id="frameFps" type="number" min="1" max="60" value="8" inputmode="numeric"> к/с</label>
     <button type="button" id="frameExport" title="Сохранить лист с кадрами или атлас">Экспорт листа…</button>
+    <button type="button" id="frameGif" title="Сохранить анимацию в GIF">GIF…</button>
   </div>
 
   <footer id="status">
@@ -300,7 +466,10 @@
 </div>
 <div id="toasts" aria-live="polite"></div>
 
+<script src="js/i18n-en.js"></script>
+<script src="js/i18n.js"></script>
 <script src="js/util.js"></script>
+<script src="js/gif.js"></script>
 <script src="js/document.js"></script>
 <script src="js/history.js"></script>
 <script src="js/selection.js"></script>
@@ -318,9 +487,15 @@
 <script src="js/refs.js"></script>
 <script src="js/frames.js"></script>
 <script src="js/fx.js"></script>
+<script src="js/textfont.js"></script>
+<script src="js/text.js"></script>
+<script src="js/particles.js"></script>
+<script src="js/anim.js"></script>
+<script src="js/cloth.js"></script>
 <script src="js/roblox.js"></script>
 <script src="js/blackjack.js"></script>
 <script src="js/input.js"></script>
 <script src="js/app.js"></script>
+  <div id="dropHint" hidden><div>Отпустите картинку — новый слой или новый проект</div></div>
 </body>
 </html>

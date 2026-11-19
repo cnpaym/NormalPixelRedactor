@@ -2,11 +2,11 @@
 /* Service worker: редактор открывается без сети.
    Стратегия «сначала сеть»: при наличии интернета всегда берётся свежая версия
    и кладётся в кеш; без сети файлы отдаются из кеша. Работает только на http/https. */
-const CACHE = 'npr-cache-v4';
+const CACHE = 'npr-cache-v11';
 const FILES = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
-  'js/util.js', 'js/document.js', 'js/history.js', 'js/selection.js', 'js/ui.js', 'js/view.js', 'js/tools.js',
-  'js/ops.js', 'js/io.js', 'js/palette.js', 'js/color.js', 'js/layers-ui.js', 'js/gradient-presets.js', 'js/gradient.js', 'js/refs.js', 'js/frames.js', 'js/fx.js', 'js/blackjack.js', 'js/brushes.js', 'js/roblox.js',
+  'js/i18n-en.js', 'js/i18n.js', 'js/util.js', 'js/gif.js', 'js/document.js', 'js/history.js', 'js/selection.js', 'js/ui.js', 'js/view.js', 'js/tools.js',
+  'js/ops.js', 'js/io.js', 'js/palette.js', 'js/color.js', 'js/layers-ui.js', 'js/gradient-presets.js', 'js/gradient.js', 'js/refs.js', 'js/frames.js', 'js/fx.js', 'js/blackjack.js', 'js/brushes.js', 'js/roblox.js', 'js/textfont.js', 'js/text.js', 'js/particles.js', 'js/anim.js', 'js/cloth.js',
   'js/input.js', 'js/app.js',
 ];
 
