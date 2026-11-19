@@ -1,148 +1,39 @@
-# NormalPixelRedactor
+NormalPixelRedactor
 
-**English:** a lightweight web pixel-art editor on HTML Canvas — no build step, no dependencies,
-runs from `index.html`. Layers, spritesheets, gradients, lighting with depth, particles, cloth
-simulation, animation helpers (ground shadow, afterimage, tweening, auto-idle, color cycling,
-hit flash, slash arcs), GIF export and Roblox tools. The interface is in English by default;
-the globe button in the menu bar switches to Russian. License: MIT.
+A pixel art editor that runs in your browser. No installation needed, and it works offline once opened (installable as a PWA). Your work is autosaved in the browser, and the last project opens automatically.
 
----
+I originally built it for the needs of my own game, and it grew into a full toolset for pixel art and sprite animation.
 
-Веб-редактор пиксель-арта на HTML Canvas. Без анимации в основном режиме,
-упор на удобство и лёгкость для слабого ноутбука.
+Drawing
+Pencil, eraser, fill, eyedropper, line, rectangle, ellipse, outline and text tools
+Pixel-perfect drawing, brush sizes 1–64 px, X/Y symmetry, dithering brushes
+Shading mode: the pencil shifts tones along your palette instead of placing a color
+Custom brushes made from a selection
+Rectangle, ellipse, lasso and magic wand selections
+Gradients: linear, radial, angular and diamond, with stepped and dithered modes and a library of 124 presets
+Layers with opacity, locking, merging and drag & drop ordering
+Reference images (under, over, or as a pinned mini-window) with an eyedropper that works on them
+Seamless tile preview (3×3) for textures and tilesets
+Palettes: import .hex / .gpl / .pal / .png, export .hex / .gpl, or make one from your canvas
+Animation
+Frame-based spritesheets with onion skin and playback
+Hit arcs, hit flash and shake, drop shadows, outlines on every frame and afterimage trails
+Tweening with easing curves
+Auto-Idle: generates breathing frames from a single frame
+Color cycling (lava, water, runes)
+Special tools
+Light and depth: up to 4 colored light sources, depth brushes, textures and animated lighting. Shading is done by shifting along your palette, not just brightening.
+Particles: a node-based emitter system with presets such as fire, snow, rain, fireworks, portal and magic. Particles can collide with your drawing and light up the environment.
+Cloth: cloaks, flags, banners, hair and skirts, simulated with wind and baked into looping frames.
+Text: built-in fonts (Latin and Cyrillic), custom fonts, and ready-made styles such as gold, steel, stone and blood.
+Export
+PNG (×1–×16), animated GIF, spritesheets and atlases
+Roblox support: Luau frame tables (ImageRectOffset, ImageRectSize) and a 9-slice helper with a ready SliceCenter value
+Other
+Works with mouse, pen and touch (gestures, offset cursor mode)
+Interface in English and Russian
+Customizable hotkeys
+Free and open source (MIT license)
+AI disclosure
 
-## Запуск
-
-Открой `index.html` двойным щелчком. Сервер, сборка и установка не нужны:
-это обычные HTML, CSS и JavaScript без зависимостей.
-
-Проекты автоматически сохраняются в браузере (IndexedDB): последний открывается
-сам, остальные лежат в «Файл → Мои проекты». Для резервной копии или переноса
-используй «Файл → Сохранить проект (.npr)». В Chrome и Edge проект пишется прямо
-в выбранный файл, и повторный Ctrl+S перезаписывает его.
-
-Установка как приложения и работа без сети (PWA) включаются, когда редактор
-открыт с сайта, например с GitHub Pages. При запуске с диска они не нужны.
-
-## Что уже есть
-
-- Холст: зум без размытия, пан, пиксельная и своя сетка (общий выключатель Shift+G),
-  копия холста справа, снизу или вокруг 3×3, превью
-- Инструменты: карандаш (pixel-perfect), ластик, заливка, пипетка, линия,
-  прямоугольник, эллипс, перемещение, рука
-- Выделение: прямоугольник, эллипс, лассо, волшебная палочка; Shift добавляет,
-  Alt вычитает; инверсия
-- Заливка и палочка: только соседние или все пиксели цвета, допуск, поиск по всем слоям
-- Замена цвета на слое или на всех слоях
-- Градиент: линейный, круговой, угловой, ромб; до 100 точек с прозрачностью; любой угол;
-  ступени и дизеринг; живой предпросмотр с ручками на холсте; недавние, свои и
-  124 готовых градиента; полоса из 8, 16 или 32 образцов цвета
-- Референсы: несколько картинок под рисунком, поверх, сбоку или в мини-окне;
-  прозрачность, размер, блокировка; пипетка берёт с них цвета; сохраняются с проектом
-- Кисть 1–64 px, квадрат или круг; симметрия по X и Y
-- Цвет: три вида выбора (квадрат, треугольник с кольцом оттенков, ползунки HSV/RGB),
-  альфа, hex, основной и вторичный, недавние цвета
-- Спрайтшиты: слой с кадрами, новый кадр — копия текущего, прошлый кадр просвечивает,
-  проигрывание, экспорт листа или атласа из нескольких слоёв
-- Экспорт GIF: анимация из всех видимых слоёв (спрайтшиты идут по кадрам, обычные
-  слои — фоном), один слой или просто картинка; масштаб, к/с, фон, повтор
-- Свет и текстура: свет с любого угла, объём от края, рисованная глубина
-  (выпуклое, ровное, три углубления), светящиеся пиксели, сдвиг тона по палитре;
-  текстуры: 6 встроенных бесшовных, свои из файла или холста
-- Свои кисти из выделения (форма или штамп с цветами), узор кисти 25/50/75%,
-  режим затенения (карандаш сдвигает тон), автообводка, поворот на любой угол
-- Roblox: 9-slice с направляющими, предпросмотром растяжения и готовым SliceCenter;
-  Luau-таблица кадров (ImageRectOffset, ImageRectSize) при экспорте листа
-- Настройка горячих клавиш, встроенный гайд по кистям и текстурам
-- Текст: встроенные шрифты с латиницей и кириллицей (Инскрипция в духе Скайрима и
-  «Властелина колец», Готика, Рок, Простой, Пиксельный и Резьба — грубые буквы
-  «от резца» с длинными перекладинами и настоящими строчными), свои .ttf/.otf/.woff,
-  шрифты компьютера; размер, интервалы, выравнивание, «по центру холста»;
-  стили из шагов (цвет, градиент, свет и текстура, обводка, свечение, тень),
-  запись шагов, свои стили; текстовый слой можно изменить потом
-- Инструмент «Обводка»: щелчок по объекту, толщина, снаружи или внутри, углы
-- Свет 2.0: до 4 цветных источников с углом, высотой и силой; наклон плоскостей;
-  глухая тень, «без света», «вне выделения — глухая тень»; углубления заметно темнее
-- Анимация света: свет идёт от точки 1 к точке 2 (или по кругу) — получается
-  новый слой-спрайтшит, оригинал не меняется
-- Частицы: эффект из нескольких излучателей, у каждого цепочка узлов
-  (источник → рождение → движение → размер → форма → цвет по жизни → смешивание);
-  бесшовный цикл, предпросмотр на холсте, пресеты (огонь с отблеском, салют, кузня,
-  дождь с брызгами, портал, хил-сердечки, листопад, монетки и др.), свои эффекты;
-  результат — слой-спрайтшит, который можно изменить
-  - несколько эффектов в одном слое: «+ Ещё эффект», группа двигается целиком,
-    Shift+щелчок — копия группы (три факела — один слой)
-  - пол с отскоком или смертью от удара, аттрактор-воронка (притяжение и закрутка)
-  - «при смерти рождать» другой излучатель (ракета → взрыв, капля → брызги)
-  - свой пиксельный микро-спрайт как форма частицы, с вращением или переворотом
-  - «светится на окружение»: отдельный слой с мерцающим отблеском на рисунке
-- Текст: жирный и курсив, оптический кернинг, настоящие строчные во всех встроенных шрифтах
-- Частицы: столкновение с рисунком (отскок, смерть, прилипание), кривые размера и скорости
-- Анимация (меню «Анимация»): синхронные кадры всех слоёв, следующий кадр, тень на полу,
-  контур на всех кадрах, шлейф (afterimage), очистка пикселей (J), твининг с кривыми,
-  дыхание (Auto-Idle), цветовое циклирование, эффект удара (вспышка + тряска),
-  инструмент «Дуга удара» (A), пустой кадр, повтор, обратный порядок, пинг-понг
-- Ткань (C): плащ, флаг, знамя, волосы, юбка — сетка Верле, гвозди, ветер, трепет,
-  тяжесть, складки с тенями, заготовки; бесшовный спрайтшит на 4–16 кадров
-- Язык интерфейса: английский (по умолчанию) и русский, кнопка с глобусом в меню
-- Тач: курсор со смещением, как в Pixel Studio («Вид»)
-- Блэкджек («Вид → Блэкджек»)
-- Картинки на холст: кнопка «+ Картинка» в слоях, перетаскивание файла в окно
-  (спросит: новым слоем или новым проектом) и Ctrl+V картинки из браузера или
-  скриншота — сразу новый слой по центру; если картинка больше холста, её можно
-  уменьшить, обрезать по краям или увеличить холст
-- Палитры: свои, импорт `.hex` / `.gpl` / `.pal` / `.png`, экспорт `.hex` / `.gpl`
-- Слои: порядок (кнопками или перетаскиванием), миниатюры, видимость, непрозрачность,
-  блокировка, блокировка прозрачности, дублирование, объединение
-- Отмена и повтор с лимитом по памяти (хранятся только изменённые пиксели)
-- Буфер обмена, включая вставку картинки из системного буфера
-- Размер холста с привязкой, масштабирование, обрезка, отражение, поворот
-- Проект `.npr`, импорт картинок, экспорт PNG с масштабом ×1–×16
-- Мышь, перо и пальцы: щипок, пан двумя пальцами, тап двумя пальцами — отмена,
-  долгое нажатие — пипетка, режим «рисовать только пером»
-
-Список клавиш: «Вид → Горячие клавиши». Все функции одной шпаргалкой — [FEATURES.md](FEATURES.md).
-
-## Как устроен код
-
-| Файл | Что внутри |
-| --- | --- |
-| `js/util.js` | цвет, PNG-кодировщик, работа с файлами, общее состояние |
-| `js/document.js` | документ, слои, компоновка изменённой области |
-| `js/history.js` | транзакции и команды отмены |
-| `js/selection.js` | выделение: маски, лассо, поиск похожей области |
-| `js/view.js` | отрисовка окна: зум, пан, сетка, курсор |
-| `js/tools.js` | инструменты, выделение, буфер обмена |
-| `js/ops.js` | операции со слоями и размером холста |
-| `js/io.js` | проект, PNG, список проектов в браузере |
-| `js/palette.js` | палитры |
-| `js/color.js` | выбор цвета: квадрат, треугольник, ползунки |
-| `js/layers-ui.js` | панель слоёв |
-| `js/gradient.js` | градиент: инструмент, редактор точек, библиотека |
-| `js/gradient-presets.js` | 124 готовых градиента |
-| `js/refs.js` | референсы |
-| `js/i18n.js`, `js/i18n-en.js` | перевод интерфейса и английский словарь |
-| `js/anim.js` | автоматизация анимации и «Дуга удара» |
-| `js/cloth.js` | ткань: сетка Верле, гвозди, ветер, складки |
-| `js/frames.js` | спрайтшиты: кадры, onion skin, экспорт листа, атласа и GIF |
-| `js/gif.js` | свой кодировщик GIF: палитра, LZW, прозрачность |
-| `js/fx.js` | свет, глубина, текстуры |
-| `js/brushes.js` | свои кисти |
-| `js/roblox.js` | 9-slice |
-| `js/textfont.js` | шрифты: скелеты букв, перья, свои файлы |
-| `js/text.js` | инструмент «Текст», стили и запись шагов |
-| `js/particles.js` | частицы: излучатели, узлы, спрайтшит |
-| `js/blackjack.js` | блэкджек |
-| `js/input.js` | мышь, тач, клавиатура |
-| `js/ui.js`, `js/app.js` | меню, диалоги, запуск |
-| `sw.js`, `manifest.webmanifest` | работа без сети и установка (PWA) |
-
-Пиксели слоя — это `Uint32Array` (RGBA, как в Aseprite и Pixel Studio).
-Любое изменение идёт через транзакцию `NPR.Tx`, которая запоминает только
-тронутые пиксели. На экран пересчитывается только изменённый прямоугольник.
-
-## Формат проекта (.npr)
-
-JSON с полями `format`, `version`, `width`, `height`, `layers`, `palette`, `refs`.
-Пиксели слоя: RGBA → deflate → base64, без потерь. Поле `version` нужно,
-чтобы будущие версии редактора открывали старые файлы.
+The code of this editor was written with the help of Claude (Anthropic’s LLM). I designed the features and tested the tool myself. The editor does not use AI to generate art: everything you draw in it is made by you.
