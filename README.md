@@ -1,39 +1,33 @@
-NormalPixelRedactor
+# NormalPixelRedactor
+**A browser-based pixel art & procedural animation forge by GrimPixel Empire.**
 
-A pixel art editor that runs in your browser. No installation needed, and it works offline once opened (installable as a PWA). Your work is autosaved in the browser, and the last project opens automatically.
+Originally forged to craft assets for our own dark RPG, it grew into a complete standalone sprite studio. No installs, no accounts—runs offline (PWA) with instant local autosave.
 
-I originally built it for the needs of my own game, and it grew into a full toolset for pixel art and sprite animation.
+---
 
-Drawing
-Pencil, eraser, fill, eyedropper, line, rectangle, ellipse, outline and text tools
-Pixel-perfect drawing, brush sizes 1–64 px, X/Y symmetry, dithering brushes
-Shading mode: the pencil shifts tones along your palette instead of placing a color
-Custom brushes made from a selection
-Rectangle, ellipse, lasso and magic wand selections
-Gradients: linear, radial, angular and diamond, with stepped and dithered modes and a library of 124 presets
-Layers with opacity, locking, merging and drag & drop ordering
-Reference images (under, over, or as a pinned mini-window) with an eyedropper that works on them
-Seamless tile preview (3×3) for textures and tilesets
-Palettes: import .hex / .gpl / .pal / .png, export .hex / .gpl, or make one from your canvas
-Animation
-Frame-based spritesheets with onion skin and playback
-Hit arcs, hit flash and shake, drop shadows, outlines on every frame and afterimage trails
-Tweening with easing curves
-Auto-Idle: generates breathing frames from a single frame
-Color cycling (lava, water, runes)
-Special tools
-Light and depth: up to 4 colored light sources, depth brushes, textures and animated lighting. Shading is done by shifting along your palette, not just brightening.
-Particles: a node-based emitter system with presets such as fire, snow, rain, fireworks, portal and magic. Particles can collide with your drawing and light up the environment.
-Cloth: cloaks, flags, banners, hair and skirts, simulated with wind and baked into looping frames.
-Text: built-in fonts (Latin and Cyrillic), custom fonts, and ready-made styles such as gold, steel, stone and blood.
-Export
-PNG (×1–×16), animated GIF, spritesheets and atlases
-Roblox support: Luau frame tables (ImageRectOffset, ImageRectSize) and a 9-slice helper with a ready SliceCenter value
-Other
-Works with mouse, pen and touch (gestures, offset cursor mode)
-Interface in English and Russian
-Customizable hotkeys
-Free and open source (MIT license)
-AI disclosure
+### ⚒️ Core Drawing
+* **Precision Tools:** Pixel-perfect pencil (1–64 px), X/Y symmetry, dithering brushes, palette-shifting shading mode, custom selection brushes, lasso & magic wand.
+* **Workflow:** Layers (opacity, lock, merge), 124 gradient presets, 3×3 seamless tile preview, pinned reference windows with color picking.
+* **Palettes:** Import/export `.hex`, `.gpl`, `.pal`, `.png` or extract directly from your canvas.
 
-The code of this editor was written with the help of Claude (Anthropic’s LLM). I designed the features and tested the tool myself. The editor does not use AI to generate art: everything you draw in it is made by you.
+### 🌪️ Animation & Automation (Skip the Tedious Grind)
+* **Cloth Physics:** Simulate wind on capes, flags, banners, hair, and skirts—bake straight into looping frames.
+* **Combat & Motion:** Interactive Bezier hit arcs, afterimage trails, hit flash & shake, jumping ground shadows, batch outlines, and stray-pixel cleanup.
+* **Time Savers:** 1-click Auto-Idle breathing, easing tweens, onion skinning, and palette color cycling (lava, water, runes).
+
+### 🔥 2.5D Light, Particles & Text
+* **2.5D Lighting:** Paint depth maps and cast up to 4 colored lights that shade accurately along your palette—plus animated light loops.
+* **Physics Particles:** Node-based emitters (fire, snow that sticks to sprites, rain, magic) that collide with your art and light up the scene.
+* **Styled Text:** Built-in Latin/Cyrillic & custom fonts with 1-click styles (Gold, Steel, Stone, Blood).
+
+### 📦 Export & Built for Devs
+* **Export:** PNG (×1–×16), animated GIF, spritesheets, and multi-layer atlases.
+* **Roblox Ready:** Live 9-slice preview with instant `SliceCenter` values and Luau frame tables (`ImageRectOffset`, `ImageRectSize`).
+* **Controls:** Mouse, stylus, and touch (gestures + offset cursor mode), customizable hotkeys, **EN / RU** interface.
+* *(And yes, there’s a working Blackjack minigame hidden in the View menu.)*
+
+---
+
+**Free & Open Source (MIT License)**
+
+*Stop fighting tedious pixel chores. Start forging.*
